@@ -243,13 +243,13 @@ async function randLogin(app){
 /* ===================== LISTA SARCINI ===================== */
 async function randListaSarcini(){
   const el = document.getElementById("ecran-continut");
-  el.innerHTML = `<div class="gol">Se încarcă sarcinile...</div>`;
+  el.innerHTML = `<div class="gol">Se încarcă comenzile...</div>`;
 
   let sarcini;
   try{
     sarcini = await q(
       supa.from("sarcini").select("*").eq("sofer_id", state.soferCurent.id).eq("data", state.sarciniData).order("created_at"),
-      "Nu am putut încărca sarcinile"
+      "Nu am putut încărca comenzile"
     );
   }catch(e){ return; }
 
@@ -274,7 +274,7 @@ async function randListaSarcini(){
 
   const lista = document.getElementById("lista-sarcini-sofer");
   if(sarcini.length===0){
-    lista.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio sarcină alocată pentru această dată.</div>`;
+    lista.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio comandă alocată pentru această dată.</div>`;
     return;
   }
   lista.innerHTML = sarcini.map(s=>{
@@ -657,7 +657,7 @@ async function genereazaSiFinalizeaza(){
     }).eq("id", state.sarcinaActiva.id), "Nu am putut salva statusul");
 
     incarcare(false);
-    toast("Sarcină finalizată ✓");
+    toast("Comandă finalizată ✓");
     state.ecran = "lista";
     randApp();
 
