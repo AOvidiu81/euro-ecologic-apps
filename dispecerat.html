@@ -290,8 +290,11 @@ async function asiguraRuteIncarcate(){
 
 /* Genereaza textul concatenat (ca in Excel), gata de copiat pe WhatsApp/email */
 function genereazaTextComanda(s, contract, client, anexa, produs, depozitComercial, depozitSursa){
-  const zi = new Date(s.data).toLocaleDateString("ro-RO",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"});
-  return `*${s.tip_actiune}*    ${zi}    ${s.cantitate ?? ""}    ${produs?.categorie||""}    ${produs?.model||""}    `+
+  const zileSaptamana = ["duminică","luni","marți","miercuri","joi","vineri","sâmbătă"];
+  const dt = new Date(s.data);
+  const zi = `${zileSaptamana[dt.getDay()]} - ${String(dt.getDate()).padStart(2,"0")}.${String(dt.getMonth()+1).padStart(2,"0")}.${dt.getFullYear()}`;
+  const cantitateSemnata = (s.tip_actiune==="RIDICARE" || s.tip_actiune==="REDUCERE") ? -Math.abs(s.cantitate||0) : Math.abs(s.cantitate||0);
+  return `*${s.tip_actiune}*    ${zi}    ${cantitateSemnata}    ${produs?.categorie||""}    ${produs?.model||""}    `+
     `NUME CL: ${client?.nume||"-"}    JUD.: ${anexa?.locatie_judet||"-"}    LOC.: ${anexa?.locatie_localitate||"-"}    ${anexa?.locatie_adresa||"-"}    `+
     `PERS. RES.: ${anexa?.persoana_contact||"-"}    TEL.: ${anexa?.telefon||"-"}    SERVISARE: ${anexa?.frecventa_servisare||"-"}    `+
     `CTR.: ${depozitComercial?.nume||"-"}    DEP.: ${depozitSursa?.nume||"-"}    ROG PV DE - ${s.tip_actiune}`;
