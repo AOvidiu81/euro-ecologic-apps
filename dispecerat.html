@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --verde-inchis:#173d2c;
@@ -195,6 +196,7 @@ tr.clicabil:hover td{background:var(--verde-pal);}
       <button data-tab="facturi">🧾 Facturi</button>
       <button data-tab="depozite">🏭 Depozite</button>
       <button data-tab="documente">📑 Documente</button>
+      <button data-tab="raport">📅 Raport lunar</button>
       <button data-tab="resurse">🚚 Șoferi &amp; Mașini</button>
     </nav>
     <div class="sidebar-footer">SC Euro Ecologic SRL<br>Hunedoara</div>
@@ -221,6 +223,7 @@ const state = {
   cache: { clienti:[], contracte:[], produse:[], soferi:[], masini:[], sarcini:[], facturi:[], depozite:[], anexe:[], documente:[] },
   sarciniData: new Date().toISOString().slice(0,10),
   sarciniFiltru: "toate",
+  raportLuna: new Date().toISOString().slice(0,7), // format YYYY-MM
   clientSelectat: null,
   contractSelectat: null,
 };
@@ -269,6 +272,7 @@ function renderTab(){
   else if(state.tab==="facturi") renderFacturi();
   else if(state.tab==="depozite") renderDepozite();
   else if(state.tab==="documente") renderDocumente();
+  else if(state.tab==="raport") renderRaportLunar();
   else if(state.tab==="resurse") renderResurse();
 }
 
@@ -1761,6 +1765,117 @@ function deschideModalDocumentEdit(d){
     inchideModal();
     renderDocumente();
   });
+}
+
+/* ===================================================================
+   TAB 8 — RAPORT LUNAR (matrice vizuala + export Excel)
+   =================================================================== */
+async function renderRaportLunar(){
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="gol">Se încarcă...</div>`;
+
+  const [an, luna] = state.raportLuna.split("-").map(Number);
+  const zileInLuna = new Date(an, luna, 0).getDate();
+  const dataInceput = `${state.raportLuna}-01`;
+  const dataSfarsit = `${state.raportLuna}-${String(zileInLuna).padStart(2,"0")}`;
+
+  const [sarciniLuna, contracte, anexe, clienti, produse] = await Promise.all([
+    q(supa.from("sarcini").select("*").gte("data", dataInceput).lte("data", dataSfarsit).order("data"), "Nu am putut încărca comenzile lunii"),
+    q(supa.from("contracte").select("*")), q(supa.from("anexe").select("*")),
+    q(supa.from("clienti").select("*")), q(supa.from("produse").select("*")),
+  ]);
+  state.cache = {...state.cache, contracte, anexe, clienti, produse};
+
+  main.innerHTML = `
+    <div class="top-bar">
+      <div><h1>Raport lunar</h1><div class="sub">Matrice vizuală cu toate mișcările lunii, generată automat din comenzi</div></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="month" id="input-luna-raport" value="${state.raportLuna}" style="width:auto;">
+        <button class="btn secundar mic" id="btn-export-excel">⬇ Export Excel</button>
+      </div>
+    </div>
+    <div class="sub" style="margin-bottom:14px;">${sarciniLuna.length} comenzi înregistrate în ${String(luna).padStart(2,"0")}/${an}</div>
+    <div id="matrice-raport"></div>
+  `;
+  document.getElementById("input-luna-raport").addEventListener("change", e=>{ state.raportLuna = e.target.value; renderRaportLunar(); });
+  document.getElementById("btn-export-excel").addEventListener("click", ()=>exportaRaportExcel(sarciniLuna, contracte, anexe, clienti, produse, an, luna, zileInLuna));
+
+  const matriceEl = document.getElementById("matrice-raport");
+  if(sarciniLuna.length===0){
+    matriceEl.innerHTML = `<div class="gol"><div class="emoji">📅</div>Nicio comandă înregistrată în această lună.</div>`;
+    return;
+  }
+
+  // grupam pe anexa (locatie); pentru fiecare zi din luna, adunam comenzile acelei zile
+  const randuriPeAnexa = {};
+  sarciniLuna.forEach(s=>{
+    const key = s.anexa_id || ("fara-anexa-"+s.contract_id);
+    if(!randuriPeAnexa[key]) randuriPeAnexa[key] = { anexa_id: s.anexa_id, contract_id: s.contract_id, zile: {} };
+    const ziua = new Date(s.data).getDate();
+    if(!randuriPeAnexa[key].zile[ziua]) randuriPeAnexa[key].zile[ziua] = [];
+    randuriPeAnexa[key].zile[ziua].push(s);
+  });
+
+  function numeClientPtContract(contractId){
+    const c = contracte.find(x=>x.id===contractId); if(!c) return "-";
+    const cl = clienti.find(x=>x.id===c.client_id); return cl?.nume || "-";
+  }
+  function eticheteZi(lista){
+    return lista.map(s=>{
+      const scurt = {AMPLASARE:"A",SUPLIMENTARE:"S+",REDUCERE:"S-",RIDICARE:"R",SERVISARE:"SV",TRANSFER:"T",RECALIBRARE:"C"}[s.tip_actiune] || s.tip_actiune?.slice(0,2);
+      return `${scurt}${s.cantitate?(" "+s.cantitate):""}`;
+    }).join(", ");
+  }
+
+  let html = `<div class="tabel-wrap card" style="padding:0;"><table style="font-size:11.5px;">
+    <thead><tr><th style="position:sticky;left:0;background:#fff;min-width:160px;">Client / Locație</th>`;
+  for(let z=1; z<=zileInLuna; z++) html += `<th style="text-align:center;min-width:34px;">${z}</th>`;
+  html += `</tr></thead><tbody>`;
+
+  Object.values(randuriPeAnexa).forEach(rand=>{
+    const anexa = anexe.find(a=>a.id===rand.anexa_id);
+    const numeClient = numeClientPtContract(rand.contract_id);
+    const locatie = anexa ? [anexa.locatie_localitate, anexa.locatie_adresa].filter(Boolean).join(" · ") : "";
+    html += `<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">${esc(numeClient)}${locatie?`<br><span style="font-weight:400;color:var(--text-slab);">${esc(locatie)}</span>`:""}</td>`;
+    for(let z=1; z<=zileInLuna; z++){
+      const zi = rand.zile[z];
+      html += `<td style="text-align:center;${zi?'background:var(--verde-pal);font-weight:700;':''}">${zi ? esc(eticheteZi(zi)) : ""}</td>`;
+    }
+    html += `</tr>`;
+  });
+  html += `</tbody></table></div>
+  <div class="sub" style="margin-top:10px;">Legendă: A=Amplasare, S+=Suplimentare, S-=Reducere, R=Ridicare, SV=Servisare, T=Transfer, C=Recalibrare</div>`;
+  matriceEl.innerHTML = html;
+}
+
+function exportaRaportExcel(sarciniLuna, contracte, anexe, clienti, produse, an, luna, zileInLuna){
+  function numeClientPtContract(contractId){
+    const c = contracte.find(x=>x.id===contractId); if(!c) return "-";
+    const cl = clienti.find(x=>x.id===c.client_id); return cl?.nume || "-";
+  }
+  const randuri = sarciniLuna.map(s=>{
+    const anexa = anexe.find(a=>a.id===s.anexa_id);
+    const produs = produse.find(p=>p.id===s.produs_id);
+    return {
+      "Data": fmtData(s.data),
+      "Client": numeClientPtContract(s.contract_id),
+      "Județ": anexa?.locatie_judet || "",
+      "Localitate": anexa?.locatie_localitate || "",
+      "Adresă": anexa?.locatie_adresa || "",
+      "Tip mișcare": LABEL_TIP[s.tip_actiune] || s.tip_actiune,
+      "Produs": produs?.model || "",
+      "Cantitate": s.cantitate || "",
+      "Serie (notă)": s.serie_nota || "",
+      "Status": LABEL_STATUS[s.status] || s.status,
+      "Nr. PV": s.nr_pv || "",
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(randuri);
+  ws['!cols'] = [{wch:11},{wch:28},{wch:8},{wch:16},{wch:28},{wch:14},{wch:16},{wch:10},{wch:16},{wch:12},{wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Raport");
+  XLSX.writeFile(wb, `Raport_${String(luna).padStart(2,"0")}_${an}.xlsx`);
+  toast("Excel generat");
 }
 
 /* ===================== PORNIRE ===================== */
