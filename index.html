@@ -248,10 +248,16 @@ async function randListaSarcini(){
   const el = document.getElementById("ecran-continut");
   el.innerHTML = `<div class="gol">Se încarcă comenzile...</div>`;
 
+  const dataStart = state.sarciniData;
+  const dataSfarsit = new Date(dataStart);
+  dataSfarsit.setDate(dataSfarsit.getDate() + 6);
+  const dataSfarsitStr = dataSfarsit.toISOString().slice(0,10);
+
   let sarcini;
   try{
     sarcini = await q(
-      supa.from("sarcini").select("*").eq("sofer_id", state.soferCurent.id).eq("data", state.sarciniData).order("created_at"),
+      supa.from("sarcini").select("*").eq("sofer_id", state.soferCurent.id)
+        .gte("data", dataStart).lte("data", dataSfarsitStr).order("data"),
       "Nu am putut încărca comenzile"
     );
   }catch(e){ return; }
@@ -274,36 +280,58 @@ async function randListaSarcini(){
   }
 
   el.innerHTML = `
-    <div class="filtre-data">
+    <div class="filtre-data" style="align-items:center;gap:8px;">
       <input type="date" id="input-data-sofer" value="${state.sarciniData}" style="flex:1;">
+      <button class="btn secundar mic" id="btn-azi">Azi</button>
     </div>
+    <div class="gps-info" style="margin-bottom:10px;">Afișez ${fmtDataScurt(dataStart)} → ${fmtDataScurt(dataSfarsitStr)} (7 zile)</div>
     <div id="lista-sarcini-sofer"></div>
   `;
   document.getElementById("input-data-sofer").addEventListener("change", e=>{ state.sarciniData = e.target.value; randListaSarcini(); });
+  document.getElementById("btn-azi").addEventListener("click", ()=>{ state.sarciniData = new Date().toISOString().slice(0,10); randListaSarcini(); });
 
   const lista = document.getElementById("lista-sarcini-sofer");
   if(sarcini.length===0){
-    lista.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio comandă alocată pentru această dată.</div>`;
+    lista.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio comandă alocată în această perioadă.</div>`;
     return;
   }
-  lista.innerHTML = sarcini.map(s=>{
-    const produs = produse.find(p=>p.id===s.produs_id);
-    const poateExecuta = s.status==="pendinte" || s.status==="in_lucru";
-    return `
-      <div class="card sarcina-card ${poateExecuta?'clicabil':''}" data-id="${s.id}" style="${poateExecuta?'cursor:pointer;':'opacity:.7;'}">
-        <div class="client">${esc(numeClient(s.contract_id))}</div>
-        <div class="produs">${produs?esc(produs.model):"—"}</div>
-        <div class="adresa">📍 ${esc(locatieText(s)) || "adresă nespecificată"}</div>
-        <div class="rand-jos">
-          <span class="badge tip">${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span>
-          <span class="badge ${s.status}">${LABEL_STATUS[s.status]||s.status}</span>
+
+  // grupam pe zi
+  const grupePeZi = {};
+  sarcini.forEach(s=>{ (grupePeZi[s.data] = grupePeZi[s.data] || []).push(s); });
+
+  const azi = new Date().toISOString().slice(0,10);
+  let html = "";
+  Object.keys(grupePeZi).sort().forEach(zi=>{
+    const listaZi = grupePeZi[zi];
+    html += `<div class="grup-zi-titlu" style="font-weight:800;font-size:13px;color:var(--verde-inchis);margin:14px 0 8px;">${zi===azi?"🔵 Azi — ":""}${fmtDataZiLunga(zi)}</div>`;
+    html += listaZi.map(s=>{
+      const produs = produse.find(p=>p.id===s.produs_id);
+      const poateExecuta = s.status==="pendinte" || s.status==="in_lucru";
+      return `
+        <div class="card sarcina-card ${poateExecuta?'clicabil':''}" data-id="${s.id}" style="${poateExecuta?'cursor:pointer;':'opacity:.7;'}">
+          <div class="client">${esc(numeClient(s.contract_id))}</div>
+          <div class="produs">${produs?esc(produs.model):"—"}</div>
+          <div class="adresa">📍 ${esc(locatieText(s)) || "adresă nespecificată"}</div>
+          <div class="rand-jos">
+            <span class="badge tip">${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span>
+            <span class="badge ${s.status}">${LABEL_STATUS[s.status]||s.status}</span>
+          </div>
         </div>
-      </div>
-    `;
-  }).join("");
+      `;
+    }).join("");
+  });
+  lista.innerHTML = html;
   lista.querySelectorAll(".sarcina-card.clicabil").forEach(card=>{
     card.addEventListener("click", ()=> deschideExecutie(card.dataset.id));
   });
+}
+
+function fmtDataScurt(d){ return new Date(d).toLocaleDateString("ro-RO",{day:"2-digit",month:"2-digit"}); }
+function fmtDataZiLunga(d){
+  const zileSaptamana = ["duminică","luni","marți","miercuri","joi","vineri","sâmbătă"];
+  const dt = new Date(d);
+  return `${zileSaptamana[dt.getDay()]}, ${String(dt.getDate()).padStart(2,"0")}.${String(dt.getMonth()+1).padStart(2,"0")}.${dt.getFullYear()}`;
 }
 
 function deschideExecutie(sarcinaId){
