@@ -582,9 +582,17 @@ async function deschideModalSarcinaNoua(){
       <select id="f-contract" disabled><option value="">— scrie întâi numele clientului —</option></select>
     </div>
     <div class="camp">
-      <label>Anexă (locație)</label>
-      <select id="f-anexa" disabled><option value="">— alege întâi contractul —</option></select>
+      <label>Anexă nr.</label>
+      <input id="f-nr-anexa" list="datalist-anexe-comanda" disabled placeholder="ex: 1, sau 1-S / 1-R la modificare (suplimentare/reducere)">
+      <datalist id="datalist-anexe-comanda"></datalist>
       <div class="sub" id="hint-anexa" style="font-size:11.5px;color:var(--text-slab);margin-top:5px;"></div>
+    </div>
+    <div class="card" id="card-adresa-anexa" style="display:none;">
+      <div class="rand-campuri">
+        <div class="camp"><label>Județ</label><input id="f-anexa-judet" placeholder="ex: Hunedoara"></div>
+        <div class="camp"><label>Localitate</label><input id="f-anexa-localitate" placeholder="ex: Deva"></div>
+      </div>
+      <div class="camp" style="margin-bottom:0;"><label>Adresă / locație exactă</label><input id="f-anexa-adresa" placeholder="Stradă, nr., sau reper"></div>
     </div>
     <div class="rand-campuri">
       <div class="camp">
@@ -656,7 +664,11 @@ async function deschideModalSarcinaNoua(){
 
   const inputClient = document.getElementById("f-client-nume");
   const selContract = document.getElementById("f-contract");
-  const selAnexa = document.getElementById("f-anexa");
+  const inputAnexa = document.getElementById("f-nr-anexa");
+  const cardAdresaAnexa = document.getElementById("card-adresa-anexa");
+  const fAnexaJudet = document.getElementById("f-anexa-judet");
+  const fAnexaLocalitate = document.getElementById("f-anexa-localitate");
+  const fAnexaAdresa = document.getElementById("f-anexa-adresa");
   const selProdus = document.getElementById("f-produs");
   const inputCantitate = document.getElementById("f-cantitate");
   const selTip = document.getElementById("f-tip");
@@ -698,26 +710,59 @@ async function deschideModalSarcinaNoua(){
   function randAnexeContract(){
     const contractId = selContract.value;
     const anexeContract = state.cache.anexe.filter(a=>a.contract_id===contractId);
-    if(!contractId){
-      selAnexa.innerHTML = `<option value="">— alege întâi contractul —</option>`;
-      selAnexa.disabled = true;
-      return;
-    }
-    selAnexa.disabled = false;
-    if(anexeContract.length===0){
-      selAnexa.innerHTML = `<option value="">— acest contract nu are nicio anexă —</option>`;
-      document.getElementById("hint-anexa").innerHTML = `Adaugă mai întâi o anexă acestui contract din tab-ul <b>Clienți &amp; Contracte</b> (detaliile contractului).`;
-      return;
-    }
-    selAnexa.innerHTML = anexeContract.map(a=>`<option value="${a.id}">Anexa ${esc(a.nr_anexa||"?")} — ${esc(a.locatie_localitate||"")} ${a.locatie_adresa?("· "+esc(a.locatie_adresa)):""}</option>`).join("");
+    inputAnexa.value = "";
+    cardAdresaAnexa.style.display = "none";
     document.getElementById("hint-anexa").innerHTML = "";
+    document.getElementById("datalist-anexe-comanda").innerHTML = anexeContract.map(a=>`<option value="${esc(a.nr_anexa||"")}">`).join("");
+    if(!contractId){
+      inputAnexa.disabled = true;
+      inputAnexa.placeholder = "ex: 1, sau 1-S / 1-R la modificare (suplimentare/reducere)";
+      return;
+    }
+    inputAnexa.disabled = false;
+    inputAnexa.placeholder = anexeContract.length===0
+      ? "ex: 1 (acest contract nu are încă nicio anexă)"
+      : "ex: 1, sau 1-S / 1-R la modificare (suplimentare/reducere)";
   }
 
+  function anexaGasitaSauBaza(){
+    const contractId = selContract.value;
+    const tipat = inputAnexa.value.trim();
+    const anexeContract = state.cache.anexe.filter(a=>a.contract_id===contractId);
+    const gasita = anexeContract.find(a=>(a.nr_anexa||"").trim().toLowerCase() === tipat.toLowerCase());
+    const bazaNr = tipat.split("-")[0].trim();
+    const baza = anexeContract.find(a=>(a.nr_anexa||"").trim().toLowerCase() === bazaNr.toLowerCase());
+    return { gasita, baza, tipat };
+  }
+
+  function actualizeazaAnexaSelectata(){
+    const hint = document.getElementById("hint-anexa");
+    const { gasita, baza, tipat } = anexaGasitaSauBaza();
+    if(!selContract.value || !tipat){
+      cardAdresaAnexa.style.display = "none";
+      hint.innerHTML = "";
+      return;
+    }
+    cardAdresaAnexa.style.display = "block";
+    if(gasita){
+      hint.innerHTML = `✓ Anexă existentă — adresa e cea salvată (editeaz-o din Clienți &amp; Contracte dacă s-a schimbat).`;
+      fAnexaJudet.value = gasita.locatie_judet||""; fAnexaLocalitate.value = gasita.locatie_localitate||""; fAnexaAdresa.value = gasita.locatie_adresa||"";
+      fAnexaJudet.disabled = fAnexaLocalitate.disabled = fAnexaAdresa.disabled = true;
+    } else {
+      hint.innerHTML = `🆕 Anexă nouă — se va crea la salvare${baza?(" (adresă preluată de la anexa "+esc(baza.nr_anexa)+", poți modifica)"):""}.`;
+      fAnexaJudet.disabled = fAnexaLocalitate.disabled = fAnexaAdresa.disabled = false;
+      fAnexaJudet.value = baza?.locatie_judet||""; fAnexaLocalitate.value = baza?.locatie_localitate||""; fAnexaAdresa.value = baza?.locatie_adresa||"";
+    }
+    actualizeazaCantitateActiva();
+  }
+  inputAnexa.addEventListener("input", actualizeazaAnexaSelectata);
+
   async function actualizeazaCantitateActiva(){
-    const anexaId = selAnexa.value, produsId = selProdus.value;
+    const { gasita } = anexaGasitaSauBaza();
+    const produsId = selProdus.value;
     const card = document.getElementById("card-cantitate-activa");
-    if(!anexaId || !produsId){ card.style.display = "none"; return; }
-    const cantitateActiva = await calculeazaCantitateActiva(anexaId, produsId);
+    if(!gasita || !produsId){ card.style.display = "none"; return; }
+    const cantitateActiva = await calculeazaCantitateActiva(gasita.id, produsId);
     card.style.display = "block";
     const cerut = parseInt(inputCantitate.value)||0;
     document.getElementById("txt-cantitate-activa").innerHTML =
@@ -725,15 +770,26 @@ async function deschideModalSarcinaNoua(){
       (cantitateActiva===0 ? " — probabil <b>Amplasare</b>." :
        cerut > 0 ? ` Dacă adaugi ${cerut}, ar rezulta ${cantitateActiva+cerut} (Suplimentare) sau, dacă retragi, ${Math.max(cantitateActiva-cerut,0)}${cantitateActiva-cerut<0?" ⚠️ (mai puțin decât ai cerut — verifică pe teren)":""}.` : "");
   }
-  selAnexa.addEventListener("change", actualizeazaCantitateActiva);
   selProdus.addEventListener("change", actualizeazaCantitateActiva);
   inputCantitate.addEventListener("input", actualizeazaCantitateActiva);
 
   document.getElementById("btn-creeaza-sarcina").addEventListener("click", async ()=>{
     const contract_id = selContract.value;
     if(!contract_id){ toast("Selectează un contract", true); return; }
-    const anexa_id = selAnexa.value;
-    if(!anexa_id){ toast("Selectează (sau adaugă) o anexă pentru acest contract", true); return; }
+    const { gasita: anexaGasita, tipat: nrAnexaTipat } = anexaGasitaSauBaza();
+    if(!nrAnexaTipat){ toast("Completează numărul anexei", true); return; }
+
+    let anexa_id = anexaGasita?.id;
+    if(!anexa_id){
+      const anexaNoua = await q(supa.from("anexe").insert({
+        contract_id, nr_anexa: nrAnexaTipat,
+        locatie_judet: fAnexaJudet.value||null, locatie_localitate: fAnexaLocalitate.value||null, locatie_adresa: fAnexaAdresa.value||null,
+        status: "activ",
+      }).select().single(), "Nu am putut crea anexa");
+      anexa_id = anexaNoua.id;
+      state.cache.anexe.push(anexaNoua);
+    }
+
     const tip_actiune = selTip.value;
     const cantitate = parseInt(inputCantitate.value) || null;
     const produs_id = selProdus.value || null;
