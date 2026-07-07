@@ -197,7 +197,7 @@ tr.clicabil:hover td{background:var(--verde-pal);}
       <button data-tab="depozite">🏭 Depozite</button>
       <button data-tab="documente">📑 Documente</button>
       <button data-tab="raport">📅 Raport lunar</button>
-      <button data-tab="resurse">🚚 Șoferi &amp; Mașini</button>
+      <button data-tab="resurse">🚚 Șoferi, Mașini &amp; Rute</button>
     </nav>
     <div class="sidebar-footer">SC Euro Ecologic SRL<br>Hunedoara</div>
   </aside>
@@ -281,6 +281,20 @@ async function asiguraDepoziteIncarcate(){
     state.cache.depozite = await q(supa.from("depozite").select("*").order("este_propriu",{ascending:false}).order("nume"), "Nu am putut încărca depozitele");
   }
   return state.cache.depozite;
+}
+
+async function asiguraRuteIncarcate(){
+  state.cache.rute = await q(supa.from("rute").select("*").order("nume"), "Nu am putut încărca rutele");
+  return state.cache.rute;
+}
+
+/* Genereaza textul concatenat (ca in Excel), gata de copiat pe WhatsApp/email */
+function genereazaTextComanda(s, contract, client, anexa, produs, depozitComercial, depozitSursa){
+  const zi = new Date(s.data).toLocaleDateString("ro-RO",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"});
+  return `*${s.tip_actiune}*    ${zi}    ${s.cantitate ?? ""}    ${produs?.categorie||""}    ${produs?.model||""}    `+
+    `NUME CL: ${client?.nume||"-"}    JUD.: ${anexa?.locatie_judet||"-"}    LOC.: ${anexa?.locatie_localitate||"-"}    ${anexa?.locatie_adresa||"-"}    `+
+    `PERS. RES.: ${anexa?.persoana_contact||"-"}    TEL.: ${anexa?.telefon||"-"}    SERVISARE: ${anexa?.frecventa_servisare||"-"}    `+
+    `CTR.: ${depozitComercial?.nume||"-"}    DEP.: ${depozitSursa?.nume||"-"}    ROG PV DE - ${s.tip_actiune}`;
 }
 
 /* ===================================================================
@@ -449,27 +463,37 @@ function optiuniSelect(lista, valSelectat, labelFn){
   return lista.map(item=>`<option value="${item.id}" ${item.id===valSelectat?"selected":""}>${esc(labelFn(item))}</option>`).join("");
 }
 
-function deschideDetaliiSarcina(id){
+async function deschideDetaliiSarcina(id){
   const s = state.cache.sarcini.find(x=>x.id===id);
   if(!s) return;
   const produs = state.cache.produse.find(p=>p.id===s.produs_id);
   const sofer = state.cache.soferi.find(p=>p.id===s.sofer_id);
   const masina = state.cache.masini.find(p=>p.id===s.masina_id);
   const contract = state.cache.contracte.find(p=>p.id===s.contract_id);
+  const client = state.cache.clienti.find(cl=>cl.id===contract?.client_id);
+  const anexa = state.cache.anexe.find(a=>a.id===s.anexa_id);
+  await asiguraDepoziteIncarcate();
+  if(!state.cache.rute) await asiguraRuteIncarcate();
+  const ruta = state.cache.rute.find(r=>r.id===s.ruta_id);
+  const depozitComercial = state.cache.depozite.find(d=>d.id===contract?.depozit_comercial_id);
+  const depozitSursa = state.cache.depozite.find(d=>d.id===s.depozit_sursa_id);
+  const textComanda = genereazaTextComanda(s, contract, client, anexa, produs, depozitComercial, depozitSursa);
 
   deschideModal(`
     <div class="modal-header"><h2>Detalii comandă</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
     <div class="detalii-linie"><span>Client</span><span>${esc(numeClientDinContract(s.contract_id))}</span></div>
     <div class="detalii-linie"><span>Contract</span><span>${esc(contract?.nr_contract||"-")}</span></div>
     <div class="detalii-linie"><span>Tip acțiune</span><span>${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span></div>
-    <div class="detalii-linie"><span>Produs</span><span>${esc(produs?.model||"-")} ${produs?.serie? "("+esc(produs.serie)+")":""}</span></div>
+    <div class="detalii-linie"><span>Produs</span><span>${esc(produs?.model||"-")}</span></div>
     <div class="detalii-linie"><span>Cantitate</span><span>${s.cantitate ?? "-"}</span></div>
     <div class="detalii-linie"><span>Șofer</span><span>${esc(sofer?.nume||"Nealocat")}</span></div>
-    <div class="detalii-linie"><span>Mașină</span><span>${esc(masina?.numar_inmatriculare||"-")}</span></div>
+    <div class="detalii-linie"><span>Rută</span><span>${esc(ruta?.nume||"-")} ${masina?("("+esc(masina.numar_inmatriculare)+")"):""}</span></div>
+    <div class="detalii-linie"><span>Depozit sursă</span><span>${esc(depozitSursa?.nume||"-")}</span></div>
     <div class="detalii-linie"><span>Locație (anexă)</span><span>${esc(locatieSarcina(s))||"-"}</span></div>
     <div class="detalii-linie"><span>Data</span><span>${fmtData(s.data)}</span></div>
     <div class="detalii-linie"><span>Serie (notă)</span><span>${esc(s.serie_nota||"-")}</span></div>
     <div class="detalii-linie"><span>Nr. PV</span><span>${esc(s.nr_pv||"-")}</span></div>
+
     <div class="camp" style="margin-top:16px;">
       <label>Schimbă status</label>
       <select id="sel-status-sarcina">
@@ -483,6 +507,19 @@ function deschideDetaliiSarcina(id){
         ${optiuniSelect(state.cache.soferi, s.sofer_id, x=>x.nume)}
       </select>
     </div>
+
+    <div class="sectiune-titlu" style="font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--verde-inchis);">Urmărire (ca-n Excel)</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text);"><input type="checkbox" id="chk-rt" ${s.bifa_rt?"checked":""} style="width:17px;height:17px;">RT (în rută)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text);"><input type="checkbox" id="chk-fac" ${s.bifa_fac?"checked":""} style="width:17px;height:17px;">FAC (facturare)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text);"><input type="checkbox" id="chk-pv" ${s.bifa_pv?"checked":""} style="width:17px;height:17px;">PV (proces verbal primit)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text);"><input type="checkbox" id="chk-waapp" ${s.bifa_waapp?"checked":""} style="width:17px;height:17px;">WaApp (trimis)</label>
+    </div>
+
+    <div class="sectiune-titlu" style="font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--verde-inchis);">Text de trimis (WhatsApp / email)</div>
+    <div class="card" style="background:#fafaf8;font-size:12px;font-family:monospace;white-space:pre-wrap;max-height:130px;overflow-y:auto;margin-bottom:8px;">${esc(textComanda)}</div>
+    <button class="btn secundar mic" id="btn-copiaza-text" style="margin-bottom:14px;">📋 Copiază textul</button>
+
     <div class="modal-actiuni">
       <button class="btn pericol mic" id="btn-sterge-sarcina">Șterge</button>
       <button class="btn secundar mic" onclick="inchideModal()">Închide</button>
@@ -490,10 +527,19 @@ function deschideDetaliiSarcina(id){
     </div>
   `);
 
+  document.getElementById("btn-copiaza-text").addEventListener("click", async ()=>{
+    try{ await navigator.clipboard.writeText(textComanda); toast("Text copiat"); }
+    catch(e){ toast("Nu am putut copia automat — selectează textul manual", true); }
+  });
+
   document.getElementById("btn-salveaza-sarcina").addEventListener("click", async ()=>{
     const status = document.getElementById("sel-status-sarcina").value;
     const sofer_id = document.getElementById("sel-realoca-sofer").value || null;
-    await q(supa.from("sarcini").update({status, sofer_id, updated_at: new Date().toISOString()}).eq("id", s.id), "Nu am putut salva");
+    const bifa_rt = document.getElementById("chk-rt").checked;
+    const bifa_fac = document.getElementById("chk-fac").checked;
+    const bifa_pv = document.getElementById("chk-pv").checked;
+    const bifa_waapp = document.getElementById("chk-waapp").checked;
+    await q(supa.from("sarcini").update({status, sofer_id, bifa_rt, bifa_fac, bifa_pv, bifa_waapp, updated_at: new Date().toISOString()}).eq("id", s.id), "Nu am putut salva");
     toast("Comandă actualizată");
     inchideModal();
     renderSarcini();
@@ -509,12 +555,12 @@ function deschideDetaliiSarcina(id){
 
 async function deschideModalSarcinaNoua(){
   // ne asiguram ca avem tot ce trebuie incarcat
-  const [contracte, produse, soferi, masini, clienti, anexe] = await Promise.all([
+  const [contracte, produse, soferi, masini, clienti, anexe, rute] = await Promise.all([
     q(supa.from("contracte").select("*")), q(supa.from("produse").select("*")),
     q(supa.from("soferi").select("*")), q(supa.from("masini").select("*")), q(supa.from("clienti").select("*")),
-    q(supa.from("anexe").select("*")),
+    q(supa.from("anexe").select("*")), asiguraRuteIncarcate(),
   ]);
-  state.cache = {...state.cache, contracte, produse, soferi, masini, clienti, anexe};
+  state.cache = {...state.cache, contracte, produse, soferi, masini, clienti, anexe, rute};
   await asiguraDepoziteIncarcate();
   const contracteActive = state.cache.contracte.filter(c=>c.status !== "incheiat" && c.status !== "anulat");
 
@@ -586,11 +632,15 @@ async function deschideModalSarcinaNoua(){
         </select>
       </div>
       <div class="camp">
-        <label>Mașină</label>
-        <select id="f-masina">
-          <option value="">— fără mașină —</option>
-          ${state.cache.masini.map(m=>`<option value="${m.id}">${esc(m.numar_inmatriculare)} ${m.model?("— "+esc(m.model)):""}</option>`).join("")}
+        <label>Rută</label>
+        <select id="f-ruta">
+          <option value="">— fără rută —</option>
+          ${state.cache.rute.map(r=>{
+            const m = state.cache.masini.find(x=>x.id===r.masina_id);
+            return `<option value="${r.id}">${esc(r.nume)}${m?(" — "+esc(m.numar_inmatriculare)):" (fără mașină alocată)"}</option>`;
+          }).join("")}
         </select>
+        <div class="sub" style="font-size:11px;color:var(--text-slab);margin-top:4px;">Mașina se schimbă la nivel de rută (tab Șoferi &amp; Mașini), nu pe fiecare comandă.</div>
       </div>
     </div>
     <div class="modal-actiuni">
@@ -649,6 +699,8 @@ async function deschideModalSarcinaNoua(){
     const cantitate = parseInt(inputCantitate.value) || null;
     const produs_id = selProdus.value || null;
     const depozit_sursa_id = document.getElementById("f-depozit-sursa").value || null;
+    const ruta_id = document.getElementById("f-ruta").value || null;
+    const rutaAleasa = state.cache.rute.find(r=>r.id===ruta_id);
 
     const payload = {
       contract_id, anexa_id, tip_actiune,
@@ -657,7 +709,8 @@ async function deschideModalSarcinaNoua(){
       depozit_sursa_id,
       serie_nota: document.getElementById("f-serie-nota").value || null,
       sofer_id: document.getElementById("f-sofer").value || null,
-      masina_id: document.getElementById("f-masina").value || null,
+      ruta_id,
+      masina_id: rutaAleasa?.masina_id || null, // instantaneu al masinii de pe ruta, la data creerii
       status: "pendinte",
     };
     await q(supa.from("sarcini").insert(payload), "Nu am putut crea comanda");
@@ -1014,7 +1067,7 @@ async function deschideModalContractNou(clientId){
   await asiguraDepoziteIncarcate();
   deschideModal(`
     <div class="modal-header"><h2>Contract nou</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
-    <div class="camp"><label>Nr. contract</label><input id="f-nr" placeholder="ex: 245/2026"></div>
+    <div class="camp"><label>Nr. contract</label><input id="f-nr" placeholder="ex: 1450 HD (nr. + prescurtare județ depozit)"></div>
     <div class="camp">
       <label>Depozit comercial (cine deține relația)</label>
       <select id="f-depozit-comercial">
@@ -1358,15 +1411,16 @@ function deschideModalFacturaEdit(f){
 async function renderResurse(){
   const main = document.getElementById("main");
   main.innerHTML = `<div class="gol">Se încarcă...</div>`;
-  const [soferi, masini] = await Promise.all([
+  const [soferi, masini, rute] = await Promise.all([
     q(supa.from("soferi").select("*").order("nume"), "Nu am putut încărca șoferii"),
     q(supa.from("masini").select("*").order("numar_inmatriculare"), "Nu am putut încărca mașinile"),
+    q(supa.from("rute").select("*").order("nume"), "Nu am putut încărca rutele"),
   ]);
-  state.cache.soferi = soferi; state.cache.masini = masini;
+  state.cache.soferi = soferi; state.cache.masini = masini; state.cache.rute = rute;
 
   main.innerHTML = `
-    <div class="top-bar"><div><h1>Șoferi &amp; Mașini</h1><div class="sub">Gestionare echipă și flotă</div></div></div>
-    <div class="doua-coloane" style="grid-template-columns:1fr 1fr;">
+    <div class="top-bar"><div><h1>Șoferi, Mașini &amp; Rute</h1><div class="sub">Gestionare echipă, flotă și alocare rute</div></div></div>
+    <div class="doua-coloane" style="grid-template-columns:1fr 1fr 1fr;">
       <div>
         <div class="top-bar" style="margin-bottom:10px;"><h3 style="margin:0;font-size:14.5px;">🧑‍✈️ Șoferi (${soferi.length})</h3><button class="btn mic" id="btn-sofer-nou">+ Șofer nou</button></div>
         <div id="lista-soferi"></div>
@@ -1375,10 +1429,26 @@ async function renderResurse(){
         <div class="top-bar" style="margin-bottom:10px;"><h3 style="margin:0;font-size:14.5px;">🚚 Mașini (${masini.length})</h3><button class="btn mic" id="btn-masina-noua">+ Mașină nouă</button></div>
         <div id="lista-masini"></div>
       </div>
+      <div>
+        <div class="top-bar" style="margin-bottom:10px;"><h3 style="margin:0;font-size:14.5px;">🗺️ Rute (${rute.length})</h3><button class="btn mic" id="btn-ruta-noua">+ Rută nouă</button></div>
+        <div class="sub" style="font-size:11.5px;margin-bottom:8px;">Alocă mașina pe rută, nu pe fiecare comandă — dacă o mașină se strică, schimbi doar aici.</div>
+        <div id="lista-rute"></div>
+      </div>
     </div>
   `;
   document.getElementById("btn-sofer-nou").addEventListener("click", deschideModalSoferNou);
   document.getElementById("btn-masina-noua").addEventListener("click", deschideModalMasinaNoua);
+  document.getElementById("btn-ruta-noua").addEventListener("click", deschideModalRutaNoua);
+
+  document.getElementById("lista-rute").innerHTML = rute.map(r=>{
+    const m = masini.find(x=>x.id===r.masina_id);
+    return `
+    <div class="card" style="cursor:pointer;margin-bottom:8px;" data-id="${r.id}">
+      <div style="font-weight:700;font-size:13.5px;">${esc(r.nume)}</div>
+      <div class="sub">${m ? esc(m.numar_inmatriculare)+(m.model?(" — "+esc(m.model)):"") : '<em>fără mașină alocată</em>'}</div>
+    </div>
+  `;}).join("") || `<div class="gol">Nicio rută încă.</div>`;
+  document.querySelectorAll("#lista-rute .card").forEach(c=>c.addEventListener("click", ()=>deschideModalRutaEdit(rute.find(r=>r.id===c.dataset.id))));
 
   document.getElementById("lista-soferi").innerHTML = soferi.map(s=>`
     <div class="card" style="cursor:pointer;margin-bottom:8px;" data-id="${s.id}">
@@ -1395,11 +1465,75 @@ async function renderResurse(){
 
   document.getElementById("lista-masini").innerHTML = masini.map(m=>`
     <div class="card" style="cursor:pointer;margin-bottom:8px;" data-id="${m.id}">
-      <div style="font-weight:700;font-size:13.5px;">${esc(m.numar_inmatriculare)}</div>
-      <div class="sub">${esc(m.model||"model nespecificat")}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-weight:700;font-size:13.5px;">${esc(m.numar_inmatriculare)}</div>
+          <div class="sub">${esc(m.model||"model nespecificat")}</div>
+        </div>
+        <span>✎</span>
+      </div>
     </div>
   `).join("") || `<div class="gol">Nicio mașină înregistrată.</div>`;
   document.querySelectorAll("#lista-masini .card").forEach(c=>c.addEventListener("click", ()=>deschideModalMasinaEdit(masini.find(m=>m.id===c.dataset.id))));
+}
+
+function deschideModalRutaNoua(){
+  deschideModal(`
+    <div class="modal-header"><h2>Rută nouă</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
+    <div class="camp"><label>Nume rută *</label><input id="f-nume" placeholder="ex: Ruta 1"></div>
+    <div class="camp">
+      <label>Mașină alocată</label>
+      <select id="f-masina">
+        <option value="">— fără mașină —</option>
+        ${state.cache.masini.map(m=>`<option value="${m.id}">${esc(m.numar_inmatriculare)}${m.model?(" — "+esc(m.model)):""}</option>`).join("")}
+      </select>
+    </div>
+    <div class="modal-actiuni">
+      <button class="btn secundar mic" onclick="inchideModal()">Anulează</button>
+      <button class="btn mic" id="btn-salveaza-ruta">Salvează</button>
+    </div>
+  `);
+  document.getElementById("btn-salveaza-ruta").addEventListener("click", async ()=>{
+    const nume = document.getElementById("f-nume").value.trim();
+    if(!nume){ toast("Numele rutei este obligatoriu", true); return; }
+    await q(supa.from("rute").insert({ nume, masina_id: document.getElementById("f-masina").value||null }), "Nu am putut salva ruta");
+    toast("Rută adăugată");
+    inchideModal();
+    renderResurse();
+  });
+}
+
+function deschideModalRutaEdit(r){
+  deschideModal(`
+    <div class="modal-header"><h2>Editează rută</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
+    <div class="camp"><label>Nume rută *</label><input id="f-nume" value="${esc(r.nume)}"></div>
+    <div class="camp">
+      <label>Mașină alocată</label>
+      <select id="f-masina">
+        <option value="">— fără mașină —</option>
+        ${state.cache.masini.map(m=>`<option value="${m.id}" ${r.masina_id===m.id?"selected":""}>${esc(m.numar_inmatriculare)}${m.model?(" — "+esc(m.model)):""}</option>`).join("")}
+      </select>
+      <div class="sub" style="font-size:11px;color:var(--text-slab);margin-top:5px;">Dacă schimbi mașina aici, toate comenzile viitoare alocate acestei rute vor arăta noua mașină.</div>
+    </div>
+    <div class="modal-actiuni">
+      <button class="btn pericol mic" id="btn-sterge-ruta">Șterge</button>
+      <button class="btn secundar mic" onclick="inchideModal()">Anulează</button>
+      <button class="btn mic" id="btn-salveaza-ruta">Salvează</button>
+    </div>
+  `);
+  document.getElementById("btn-salveaza-ruta").addEventListener("click", async ()=>{
+    await q(supa.from("rute").update({ nume: document.getElementById("f-nume").value.trim(), masina_id: document.getElementById("f-masina").value||null }).eq("id", r.id), "Nu am putut salva");
+    toast("Rută actualizată");
+    inchideModal();
+    renderResurse();
+  });
+  document.getElementById("btn-sterge-ruta").addEventListener("click", async ()=>{
+    if(!confirm("Sigur ștergi această rută?")) return;
+    await q(supa.from("rute").delete().eq("id", r.id), "Nu am putut șterge");
+    toast("Rută ștearsă");
+    inchideModal();
+    renderResurse();
+  });
 }
 
 function deschideModalSoferNou(){
