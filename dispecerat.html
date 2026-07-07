@@ -570,14 +570,16 @@ async function deschideModalSarcinaNoua(){
   deschideModal(`
     <div class="modal-header"><h2>Comandă nouă</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
     <div class="camp">
-      <label>Contract (client)</label>
-      <select id="f-contract">
-        <option value="">Selectează contract...</option>
-        ${(contracteActive.length?contracteActive:state.cache.contracte).map(c=>{
-          const cl = state.cache.clienti.find(x=>x.id===c.client_id);
-          return `<option value="${c.id}">${esc(c.nr_contract||"(fără nr.)")} — ${esc(cl?.nume||"?")}</option>`;
-        }).join("")}
-      </select>
+      <label>Client</label>
+      <input id="f-client-nume" list="datalist-clienti-comanda" placeholder="Scrie numele clientului...">
+      <datalist id="datalist-clienti-comanda">
+        ${state.cache.clienti.map(c=>`<option value="${esc(c.nume)}">`).join("")}
+      </datalist>
+      <div class="sub" id="hint-client" style="font-size:11.5px;color:var(--text-slab);margin-top:5px;"></div>
+    </div>
+    <div class="camp">
+      <label>Nr. Contract</label>
+      <select id="f-contract" disabled><option value="">— scrie întâi numele clientului —</option></select>
     </div>
     <div class="camp">
       <label>Anexă (locație)</label>
@@ -652,11 +654,46 @@ async function deschideModalSarcinaNoua(){
     </div>
   `);
 
+  const inputClient = document.getElementById("f-client-nume");
   const selContract = document.getElementById("f-contract");
   const selAnexa = document.getElementById("f-anexa");
   const selProdus = document.getElementById("f-produs");
   const inputCantitate = document.getElementById("f-cantitate");
   const selTip = document.getElementById("f-tip");
+
+  function randContracteClient(){
+    const numeScris = inputClient.value.trim().toLowerCase();
+    const hintClient = document.getElementById("hint-client");
+    if(!numeScris){
+      selContract.innerHTML = `<option value="">— scrie întâi numele clientului —</option>`;
+      selContract.disabled = true;
+      hintClient.innerHTML = "";
+      randAnexeContract();
+      return;
+    }
+    const client = state.cache.clienti.find(c=>(c.nume||"").trim().toLowerCase() === numeScris);
+    if(!client){
+      selContract.innerHTML = `<option value="">— client inexistent —</option>`;
+      selContract.disabled = true;
+      hintClient.innerHTML = `⚠️ Acest client nu există încă. Creează-l din tab-ul <b>Clienți &amp; Contracte</b>, apoi revino aici.`;
+      randAnexeContract();
+      return;
+    }
+    const contracteClient = state.cache.contracte.filter(c=>c.client_id===client.id);
+    if(contracteClient.length===0){
+      selContract.innerHTML = `<option value="">— fără contract —</option>`;
+      selContract.disabled = true;
+      hintClient.innerHTML = `✓ Client găsit, dar nu are niciun contract. Adaugă un contract din <b>Clienți &amp; Contracte</b>.`;
+      randAnexeContract();
+      return;
+    }
+    hintClient.innerHTML = `✓ Client găsit`;
+    selContract.disabled = false;
+    selContract.innerHTML = contracteClient.map(c=>`<option value="${c.id}">${esc(c.nr_contract||"(fără nr.)")}</option>`).join("");
+    randAnexeContract();
+  }
+  inputClient.addEventListener("input", randContracteClient);
+  selContract.addEventListener("change", randAnexeContract);
 
   function randAnexeContract(){
     const contractId = selContract.value;
@@ -675,7 +712,6 @@ async function deschideModalSarcinaNoua(){
     selAnexa.innerHTML = anexeContract.map(a=>`<option value="${a.id}">Anexa ${esc(a.nr_anexa||"?")} — ${esc(a.locatie_localitate||"")} ${a.locatie_adresa?("· "+esc(a.locatie_adresa)):""}</option>`).join("");
     document.getElementById("hint-anexa").innerHTML = "";
   }
-  selContract.addEventListener("change", randAnexeContract);
 
   async function actualizeazaCantitateActiva(){
     const anexaId = selAnexa.value, produsId = selProdus.value;
