@@ -256,18 +256,18 @@ async function randListaSarcini(){
   let sarcini;
   try{
     sarcini = await q(
-      supa.from("sarcini").select("*").eq("sofer_id", state.soferCurent.id)
+      supa.from("sarcini").select("*")
         .gte("data", dataStart).lte("data", dataSfarsitStr).order("data"),
       "Nu am putut încărca comenzile"
     );
   }catch(e){ return; }
 
-  const [contracte, produse, clienti, anexe] = await Promise.all([
+  const [contracte, produse, clienti, anexe, soferi] = await Promise.all([
     q(supa.from("contracte").select("*")), q(supa.from("produse").select("*")), q(supa.from("clienti").select("*")),
-    q(supa.from("anexe").select("*")),
+    q(supa.from("anexe").select("*")), q(supa.from("soferi").select("*")),
   ]);
   state.sarciniLista = sarcini;
-  state._contracte = contracte; state._produse = produse; state._clienti = clienti; state._anexe = anexe;
+  state._contracte = contracte; state._produse = produse; state._clienti = clienti; state._anexe = anexe; state._soferi = soferi;
 
   function numeClient(contractId){
     const c = contracte.find(x=>x.id===contractId); if(!c) return "-";
@@ -278,13 +278,17 @@ async function randListaSarcini(){
     if(anexa) return [anexa.locatie_localitate, anexa.locatie_adresa].filter(Boolean).join(", ");
     return [s.locatie_localitate, s.locatie_adresa].filter(Boolean).join(", "); // compatibilitate comenzi vechi
   }
+  function numeSoferAlocat(soferId){
+    const sf = soferi.find(x=>x.id===soferId);
+    return sf ? sf.nume : null;
+  }
 
   el.innerHTML = `
     <div class="filtre-data" style="align-items:center;gap:8px;">
       <input type="date" id="input-data-sofer" value="${state.sarciniData}" style="flex:1;">
       <button class="btn secundar mic" id="btn-azi">Azi</button>
     </div>
-    <div class="gps-info" style="margin-bottom:10px;">Afișez ${fmtDataScurt(dataStart)} → ${fmtDataScurt(dataSfarsitStr)} (7 zile)</div>
+    <div class="gps-info" style="margin-bottom:10px;">Afișez ${fmtDataScurt(dataStart)} → ${fmtDataScurt(dataSfarsitStr)} (7 zile) — toate comenzile echipei</div>
     <div id="lista-sarcini-sofer"></div>
   `;
   document.getElementById("input-data-sofer").addEventListener("change", e=>{ state.sarciniData = e.target.value; randListaSarcini(); });
@@ -292,7 +296,7 @@ async function randListaSarcini(){
 
   const lista = document.getElementById("lista-sarcini-sofer");
   if(sarcini.length===0){
-    lista.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio comandă alocată în această perioadă.</div>`;
+    lista.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio comandă în această perioadă.</div>`;
     return;
   }
 
@@ -308,11 +312,13 @@ async function randListaSarcini(){
     html += listaZi.map(s=>{
       const produs = produse.find(p=>p.id===s.produs_id);
       const poateExecuta = s.status==="pendinte" || s.status==="in_lucru";
+      const numeAlocat = numeSoferAlocat(s.sofer_id);
       return `
         <div class="card sarcina-card ${poateExecuta?'clicabil':''}" data-id="${s.id}" style="${poateExecuta?'cursor:pointer;':'opacity:.7;'}">
           <div class="client">${esc(numeClient(s.contract_id))}</div>
           <div class="produs">${produs?esc(produs.model):"—"}</div>
           <div class="adresa">📍 ${esc(locatieText(s)) || "adresă nespecificată"}</div>
+          ${numeAlocat ? `<div class="adresa">🧑‍✈️ Alocat: ${esc(numeAlocat)}</div>` : ""}
           <div class="rand-jos">
             <span class="badge tip">${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span>
             <span class="badge ${s.status}">${LABEL_STATUS[s.status]||s.status}</span>
@@ -702,7 +708,7 @@ async function genereazaSiFinalizeaza(){
     // marcam finalizat in baza de date (doar text, fara fisier)
     incarcare(true, "Se salvează statusul...");
     await q(supa.from("sarcini").update({
-      status: "finalizat", nr_pv: state.nrPv, serie_nota: state.serieIntrodusa || null, updated_at: new Date().toISOString()
+      status: "finalizat", nr_pv: state.nrPv, serie_nota: state.serieIntrodusa || null, sofer_id: state.soferCurent.id, updated_at: new Date().toISOString()
     }).eq("id", state.sarcinaActiva.id), "Nu am putut salva statusul");
 
     incarcare(false);
