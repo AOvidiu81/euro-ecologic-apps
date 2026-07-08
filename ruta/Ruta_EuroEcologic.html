@@ -832,7 +832,7 @@ async function findOrCreateSession(){
         };
       });
       setSyncStatus('ok');
-      return currentSessionId;
+      return s;
     }
 
     const { data: created, error: createErr } = await sb
@@ -851,7 +851,7 @@ async function findOrCreateSession(){
     if(createErr) throw createErr;
     currentSessionId = created.id;
     setSyncStatus('ok');
-    return currentSessionId;
+    return created;
   }catch(err){
     console.error('Supabase findOrCreateSession error:', err);
     setSyncStatus('error');
@@ -889,7 +889,21 @@ async function resumeSession(session){
   renderDayStartSummary();
   headerSummary.style.display = 'flex';
   pageStart.style.display = 'none';
-  pageConfig.style.display = 'block';
+
+  if(session.last_ziua){
+    ziuaSel.value = session.last_ziua;
+    masinaSel.value = session.last_masina || 'TOATE';
+    const sortVal = session.last_sort_mode || '';
+    sortModeSel.value = sortVal;
+    if(sortVal === 'depot'){ routeMode = 'depot'; historyWeekNum = null; }
+    else if(sortVal === ''){ routeMode = null; historyWeekNum = null; }
+    else { routeMode = 'history'; historyWeekNum = parseInt(sortVal,10); }
+    pageConfig.style.display = 'none';
+    pageApp.style.display = 'block';
+    render();
+  } else {
+    pageConfig.style.display = 'block';
+  }
 }
 
 async function checkActiveSessions(){
@@ -1378,11 +1392,25 @@ btnStartDay.addEventListener('click', async ()=>{
     startTime: new Date(),
   };
   btnStartDay.textContent = '⏳ Se conectează...';
-  await findOrCreateSession();
+  const session = await findOrCreateSession();
   btnStartDay.textContent = '✅ Începe ziua →';
   renderDayStartSummary();
+  headerSummary.style.display = 'flex';
   pageStart.style.display = 'none';
-  pageConfig.style.display = 'block';
+
+  if(session && session.last_ziua){
+    ziuaSel.value = session.last_ziua;
+    masinaSel.value = session.last_masina || 'TOATE';
+    const sortVal = session.last_sort_mode || '';
+    sortModeSel.value = sortVal;
+    if(sortVal === 'depot'){ routeMode = 'depot'; historyWeekNum = null; }
+    else if(sortVal === ''){ routeMode = null; historyWeekNum = null; }
+    else { routeMode = 'history'; historyWeekNum = parseInt(sortVal,10); }
+    pageApp.style.display = 'block';
+    render();
+  } else {
+    pageConfig.style.display = 'block';
+  }
 });
 
 function buildStartMessage(){
@@ -1497,6 +1525,20 @@ ziuaSel.addEventListener('change', render);
 masinaSel.addEventListener('change', render);
 searchInput.addEventListener('input', render);
 
+async function saveRouteConfig(){
+  if(!sb || !currentSessionId) return;
+  try{
+    await sb.from('route_sessions').update({
+      last_ziua: ziuaSel.value,
+      last_masina: masinaSel.value,
+      last_sort_mode: sortModeSel.value,
+      updated_at: new Date().toISOString(),
+    }).eq('id', currentSessionId);
+  }catch(err){
+    console.error('Eroare la salvarea configurației rutei:', err);
+  }
+}
+
 btnGenerateRoute.addEventListener('click', ()=>{
   const val = sortModeSel.value;
   if(val === 'depot'){ routeMode = 'depot'; historyWeekNum = null; }
@@ -1507,6 +1549,7 @@ btnGenerateRoute.addEventListener('click', ()=>{
   headerSummary.style.display = 'flex';
   renderDayStartSummary();
   render();
+  saveRouteConfig();
 });
 
 function fmtDateRo(iso){
