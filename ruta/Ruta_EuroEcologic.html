@@ -479,6 +479,7 @@
     <h1>Ruta <span>EuroEcologic</span></h1>
     <div style="display:flex; align-items:center; gap:8px;">
       <span id="syncStatus" title="Stare sincronizare cloud" style="font-size:1.1rem;">☁️</span>
+      <span id="syncQueueBadge" style="display:none; font-size:0.7rem; font-weight:700; color:var(--accent); background:rgba(255,138,61,0.15); border:1px solid rgba(255,138,61,0.4); border-radius:10px; padding:2px 7px;"></span>
       <div class="count" id="countBadge">0 puncte</div>
     </div>
   </header>
@@ -751,6 +752,7 @@ const statusRow = document.getElementById('statusRow');
 const listEl = document.getElementById('list');
 const countBadge = document.getElementById('countBadge');
 const syncStatusEl = document.getElementById('syncStatus');
+const syncQueueBadge = document.getElementById('syncQueueBadge');
 const routeSummary = document.getElementById('routeSummary');
 const depotNavCard = document.getElementById('depotNavCard');
 const pageConfig = document.getElementById('pageConfig');
@@ -795,13 +797,49 @@ const addPlateBtn = document.getElementById('addPlateBtn');
 
 depotNavCard.href = `https://www.google.com/maps/dir/?api=1&destination=${DEPOT.lat},${DEPOT.lon}`;
 
+let syncQueue = []; // {key, desc, fn}
+let queueProcessing = false;
+
 function setSyncStatus(state){
-  // state: 'ok' | 'syncing' | 'error' | 'off'
-  if(!sb){ syncStatusEl.textContent = '📵'; syncStatusEl.title = 'Fără conexiune la baza de date'; return; }
+  // state: 'ok' | 'syncing' | 'error' | 'queued' | 'off'
+  if(!sb){ syncStatusEl.textContent = '📵'; syncStatusEl.title = 'Fără conexiune la baza de date'; syncQueueBadge.style.display = 'none'; return; }
+  if(syncQueue.length > 0 && state !== 'syncing'){
+    syncStatusEl.textContent = '📥';
+    syncStatusEl.title = `${syncQueue.length} acțiuni în așteptare — se retrimit automat când revine semnalul`;
+    syncQueueBadge.style.display = 'inline-block';
+    syncQueueBadge.textContent = `${syncQueue.length} în așteptare`;
+    return;
+  }
+  syncQueueBadge.style.display = 'none';
   if(state === 'syncing'){ syncStatusEl.textContent = '🔄'; syncStatusEl.title = 'Se sincronizează...'; }
   else if(state === 'error'){ syncStatusEl.textContent = '⚠️'; syncStatusEl.title = 'Eroare de sincronizare — se reîncearcă la următoarea acțiune'; }
   else { syncStatusEl.textContent = '☁️'; syncStatusEl.title = 'Sincronizat cu baza de date'; }
 }
+
+function enqueueSync(key, desc, fn){
+  syncQueue = syncQueue.filter(item => item.key !== key); // dedupe: keep only the latest attempt per client/session
+  syncQueue.push({key, desc, fn});
+  setSyncStatus('queued');
+}
+
+async function processQueue(){
+  if(!sb || queueProcessing || syncQueue.length === 0) return;
+  queueProcessing = true;
+  setSyncStatus('syncing');
+  const items = [...syncQueue];
+  for(const item of items){
+    try{
+      await item.fn();
+      syncQueue = syncQueue.filter(q => q !== item);
+    }catch(err){
+      console.error('Reîncercare eșuată, rămâne în coadă:', item.desc, err);
+    }
+  }
+  queueProcessing = false;
+  setSyncStatus(syncQueue.length ? 'queued' : 'ok');
+}
+window.addEventListener('online', processQueue);
+setInterval(processQueue, 15000);
 
 async function findOrCreateSession(){
   if(!sb) return null;
@@ -945,8 +983,7 @@ checkActiveSessions();
 
 async function syncVisit(clientId, r, patch){
   if(!sb || !currentSessionId) return;
-  setSyncStatus('syncing');
-  try{
+  const doWrite = async ()=>{
     const { error } = await sb.from('visit_logs').upsert({
       session_id: currentSessionId,
       client_id: clientId,
@@ -960,41 +997,51 @@ async function syncVisit(clientId, r, patch){
       updated_at: new Date().toISOString(),
     }, {onConflict: 'session_id,client_id'});
     if(error) throw error;
-    setSyncStatus('ok');
+  };
+  setSyncStatus('syncing');
+  try{
+    await doWrite();
+    setSyncStatus(syncQueue.length ? 'queued' : 'ok');
   }catch(err){
-    console.error('Supabase syncVisit error:', err);
-    setSyncStatus('error');
+    console.error('Supabase syncVisit error, adăugat în coadă:', err);
+    enqueueSync('client:'+clientId, `vizită ${r ? r.client : clientId}`, doWrite);
   }
 }
 
 async function deleteVisitSync(clientId){
   if(!sb || !currentSessionId) return;
-  setSyncStatus('syncing');
-  try{
+  const doDelete = async ()=>{
     const { error } = await sb.from('visit_logs')
       .delete()
       .eq('session_id', currentSessionId)
       .eq('client_id', clientId);
     if(error) throw error;
-    setSyncStatus('ok');
+  };
+  setSyncStatus('syncing');
+  try{
+    await doDelete();
+    setSyncStatus(syncQueue.length ? 'queued' : 'ok');
   }catch(err){
-    console.error('Supabase deleteVisitSync error:', err);
-    setSyncStatus('error');
+    console.error('Supabase deleteVisitSync error, adăugat în coadă:', err);
+    enqueueSync('client:'+clientId, `resetare vizită`, doDelete);
   }
 }
 
 async function finalizeSessionSync(kmEnd){
   if(!sb || !currentSessionId) return;
-  setSyncStatus('syncing');
-  try{
+  const doFinalize = async ()=>{
     const { error } = await sb.from('route_sessions')
       .update({ km_end: kmEnd, status: 'finalizata', updated_at: new Date().toISOString() })
       .eq('id', currentSessionId);
     if(error) throw error;
-    setSyncStatus('ok');
+  };
+  setSyncStatus('syncing');
+  try{
+    await doFinalize();
+    setSyncStatus(syncQueue.length ? 'queued' : 'ok');
   }catch(err){
-    console.error('Supabase finalizeSessionSync error:', err);
-    setSyncStatus('error');
+    console.error('Supabase finalizeSessionSync error, adăugat în coadă:', err);
+    enqueueSync('finalize:'+currentSessionId, 'finalizare rută', doFinalize);
   }
 }
 
