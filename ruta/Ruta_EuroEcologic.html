@@ -138,6 +138,13 @@
   .card.activ::before{background:var(--activ);}
   .card.inactiv::before{background:var(--inactiv);}
 
+  .card.visit-progress::before{background:var(--accent);}
+  .card.visit-progress{background:rgba(255,138,61,0.06);}
+
+  .card.visit-done{opacity:0.6;}
+  .card.visit-done::before{background:var(--text-dim);}
+  .card.visit-done .client{color:var(--text-dim);}
+
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
   .client{font-weight:700; font-size:1.02rem; line-height:1.25;}
   .badges{display:flex; gap:6px; flex-shrink:0;}
@@ -1492,14 +1499,18 @@ function generateDailyPdf(kmEndEl){
     const frecventa = r && r.frecventa ? r.frecventa : '-';
     const arriveStr = v.arrive ? (pad2(v.arrive.getHours())+':'+pad2(v.arrive.getMinutes())) : '-';
     const leaveStr = v.leave ? (pad2(v.leave.getHours())+':'+pad2(v.leave.getMinutes())) : '-';
-    const mins = (v.arrive && v.leave) ? Math.max(0, Math.round((v.leave - v.arrive)/60000)) : '-';
+    let durataStr = '-';
+    if(v.arrive && v.leave){
+      const totalSec = Math.max(0, Math.round((v.leave - v.arrive)/1000));
+      durataStr = `${Math.floor(totalSec/60)}m ${pad2(totalSec%60)}s`;
+    }
     const code = fmtCode(v);
-    return [String(i+1), client, localitate, String(toalete), frecventa, arriveStr, leaveStr, String(mins), obsLabel(v), code];
+    return [String(i+1), client, localitate, String(toalete), frecventa, arriveStr, leaveStr, durataStr, obsLabel(v), code];
   });
 
   doc.autoTable({
     startY: y,
-    head: [['#','Client','Localitate','Nr. toalete','Frecventa','Sosire','Plecare','Durata (min)','Observatie','Cod']],
+    head: [['#','Client','Localitate','Nr. toalete','Frecventa','Sosire','Plecare','Durata','Observatie','Cod']],
     body: rows.length ? rows : [['-','Nicio vizita inregistrata','-','-','-','-','-','-','-','-']],
     styles: {fontSize:8},
     headStyles: {fillColor:[255,138,61]},
@@ -1687,9 +1698,11 @@ function visitRowHtml(r){
 
   if(v.leave){
     const leaveStr = pad2(v.leave.getHours())+':'+pad2(v.leave.getMinutes());
-    const mins = Math.max(0, Math.round((v.leave - v.arrive)/60000));
+    const totalSec = Math.max(0, Math.round((v.leave - v.arrive)/1000));
+    const mins = Math.floor(totalSec/60);
+    const secs = totalSec%60;
     return `<div class="visit-row">
-      <div class="visit-info">✅ <b>${arriveStr}</b> → <b>${leaveStr}</b> (${mins} min)</div>
+      <div class="visit-info">✅ <b>${arriveStr}</b> → <b>${leaveStr}</b> (${mins} min ${pad2(secs)} sec)</div>
       <div class="visit-reset" data-key="${escapeHtml(key)}">✖ Resetează</div>
     </div>`;
   }
@@ -1708,6 +1721,14 @@ function cardHtml(r, orderNum, historyInfo){
   const hasCoords = r.lat && r.lon;
   const hasTel = r.telefon && r.telefon.trim().length>0;
   const noVisit = historyInfo && !historyInfo.valid;
+
+  const v = visitLog[visitKey(r)];
+  let visitClass = '';
+  if(v){
+    if(v.leave || v.obs){ visitClass = 'visit-done'; }
+    else if(v.arrive){ visitClass = 'visit-progress'; }
+  }
+
   const top = `
     <div class="card-top">
       <div class="client">${escapeHtml(r.client)}</div>
@@ -1719,7 +1740,7 @@ function cardHtml(r, orderNum, historyInfo){
       </div>
     </div>`;
   return `
-  <div class="card ${statusClass} ${noVisit?'no-visit':''}">
+  <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''}">
     ${orderNum ? `<div class="card-top-with-order"><div class="order-badge">${orderNum}</div>${top}</div>` : top}
     <div class="loc"><b>${escapeHtml(r.localitate)}</b>${r.jud ? ' · '+r.jud:''}${r.locatie ? ' — '+escapeHtml(r.locatie):''}</div>
     <div class="meta-row">${qtyLabel(r)}</div>
