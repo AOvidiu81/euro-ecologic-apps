@@ -162,6 +162,24 @@
   .meta-row{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:0.78rem; color:var(--text-dim); margin-bottom:10px;}
   .meta-row .qty b{color:var(--text);}
 
+  .nav-top-btn{
+    flex:none; text-align:center; padding:8px 12px; border-radius:9px; font-size:0.8rem;
+    font-weight:700; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:5px;
+    background:var(--accent); color:#1a0f04; border:1px solid var(--accent); white-space:nowrap;
+  }
+  .nav-top-btn.disabled{opacity:0.35; pointer-events:none;}
+
+  .bottom-tag-row{
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px;
+    padding-top:10px; border-top:1px solid var(--border);
+  }
+  .bottom-tag-row .call-btn{
+    flex:1; min-width:90px; text-align:center; padding:8px 8px; border-radius:9px; font-size:0.82rem;
+    font-weight:600; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:6px;
+    border:1px solid var(--border); color:var(--text); background:var(--panel-2);
+  }
+  .bottom-tag-row .call-btn.disabled{opacity:0.35; pointer-events:none;}
+
   .actions{display:flex; gap:8px;}
   .btn{
     flex:1; text-align:center; padding:9px 8px; border-radius:9px; font-size:0.85rem;
@@ -321,6 +339,26 @@
   }
   .excel-import-box{margin-top:10px; padding-top:10px; border-top:1px solid var(--border);}
   .excel-import-box .tag-btn{background:var(--panel-2);}
+
+  .history-item{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:14px; margin-bottom:12px;
+  }
+  .history-item .h-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px;}
+  .history-item .h-date{font-weight:700; font-size:0.92rem;}
+  .history-item .h-sub{font-size:0.78rem; color:var(--text-dim); margin-top:2px;}
+  .history-item .h-status{
+    font-size:0.68rem; font-weight:800; padding:4px 10px; border-radius:20px; text-transform:uppercase; white-space:nowrap;
+  }
+  .history-item .h-status.activa{background:rgba(61,220,151,0.15); color:var(--activ); border:1px solid rgba(61,220,151,0.4);}
+  .history-item .h-status.finalizata{background:rgba(147,163,176,0.15); color:var(--text-dim); border:1px solid var(--border);}
+  .history-item .h-stats{display:flex; gap:14px; font-size:0.76rem; color:var(--text-dim); margin-bottom:10px;}
+  .history-item .h-stats b{color:var(--text);}
+  .history-item .h-btn{
+    background:var(--accent); color:#1a0f04; font-weight:700; font-size:0.82rem; text-align:center;
+    padding:9px; border-radius:9px; cursor:pointer;
+  }
+
   .manage-panel{
     display:grid; grid-template-columns:1fr; gap:14px; margin-top:12px;
     padding-top:12px; border-top:1px solid var(--border);
@@ -436,7 +474,17 @@
       <div class="tag-btn" id="excelChooseBtn">📂 Alege fișierul Excel (Ruta HD)</div>
       <div class="import-status" id="excelImportStatus"></div>
     </div>
+
+    <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
   </div>
+</div>
+
+<div class="wrap" id="pageHistory" style="display:none;">
+  <header>
+    <h1>Ruta <span>EuroEcologic</span></h1>
+  </header>
+  <div class="finish-back" id="btnHistoryBack" style="text-align:left; margin-bottom:14px;">← Înapoi</div>
+  <div id="historyList"></div>
 </div>
 
 <div class="wrap" id="pageConfig" style="display:none;">
@@ -793,6 +841,10 @@ const btnShareStart = document.getElementById('btnShareStart');
 const manageToggle = document.getElementById('manageToggle');
 const managePanel = document.getElementById('managePanel');
 const excelImportToggle = document.getElementById('excelImportToggle');
+const btnOpenHistory = document.getElementById('btnOpenHistory');
+const pageHistory = document.getElementById('pageHistory');
+const btnHistoryBack = document.getElementById('btnHistoryBack');
+const historyList = document.getElementById('historyList');
 const excelImportBox = document.getElementById('excelImportBox');
 const excelImportInfo = document.getElementById('excelImportInfo');
 const excelFileInput = document.getElementById('excelFileInput');
@@ -1199,11 +1251,13 @@ btnSaveFinish.addEventListener('click', async ()=>{
   btnSaveFinish.style.display = 'none';
   savedConfirm.style.display = 'block';
   btnGeneratePdf2.style.display = 'block';
-  btnGoHome.style.display = 'block';
 });
 
-btnGeneratePdf2.addEventListener('click', ()=>{
-  generateDailyPdf(kmEndInput2);
+btnGeneratePdf2.addEventListener('click', async ()=>{
+  btnGeneratePdf2.textContent = '⏳ Se generează...';
+  const ok = await generateDailyPdf(kmEndInput2);
+  btnGeneratePdf2.textContent = '🧾 Generează raport PDF';
+  if(ok) btnGoHome.style.display = 'block';
 });
 
 function lockStartDay(){
@@ -1587,11 +1641,11 @@ btnShareStart.addEventListener('click', async ()=>{
   window.open(waUrl, '_blank');
 });
 
-function generateDailyPdf(kmEndEl){
+async function generateDailyPdf(kmEndEl){
   kmEndEl = kmEndEl || kmEndInput2;
   if(!window.jspdf){
     alert('Biblioteca PDF nu s-a încărcat (verifică internetul) — încearcă din nou.');
-    return;
+    return false;
   }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation: 'landscape', unit: 'mm', format: 'a4'});
@@ -1655,8 +1709,125 @@ function generateDailyPdf(kmEndEl){
   doc.text(`Total vizite: ${entries.length}`, 14, finalY + 8);
 
   const filenameDate = new Date().toISOString().slice(0,10);
-  doc.save(`Raport_${filenameDate}.pdf`);
+  const filename = `Raport_${filenameDate}.pdf`;
+
+  // Try sharing the PDF directly (opens the native share sheet with WhatsApp etc. as options).
+  // Falls back to a normal download if the browser/device doesn't support file sharing.
+  try{
+    const pdfBlob = doc.output('blob');
+    const file = new File([pdfBlob], filename, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'Raport zilnic Euro Ecologic'});
+      return true;
+    }
+  }catch(err){
+    console.error('Partajare directă eșuată, se descarcă normal:', err);
+  }
+  doc.save(filename);
+  return true;
 }
+
+async function regenerateHistoryPdf(session){
+  if(!sb) return;
+  const { data: visits, error } = await sb.from('visit_logs').select('*').eq('session_id', session.id);
+  if(error){ alert('Eroare la citirea vizitelor: ' + error.message); return; }
+
+  // Temporarily swap in the historical session's data, reusing the same PDF builder,
+  // then restore whatever the driver currently has open.
+  const savedDayStart = dayStart;
+  const savedVisitLog = {...visitLog};
+  const savedSessionId = currentSessionId;
+
+  dayStart = {
+    brand: session.vehicle_brand, plate: session.vehicle_plate,
+    kmStart: session.km_start, driver1: session.driver1, driver2: session.driver2,
+  };
+  Object.keys(visitLog).forEach(k=>delete visitLog[k]);
+  (visits||[]).forEach(v=>{
+    visitLog[String(v.client_id)] = {
+      arrive: v.arrive_time ? new Date(v.arrive_time) : null,
+      leave: v.leave_time ? new Date(v.leave_time) : null,
+      obs: v.obs || null,
+    };
+  });
+  currentSessionId = session.id;
+
+  const fakeKmEndInput = { value: session.km_end != null ? String(session.km_end) : '' };
+  await generateDailyPdf(fakeKmEndInput);
+
+  dayStart = savedDayStart;
+  Object.keys(visitLog).forEach(k=>delete visitLog[k]);
+  Object.keys(savedVisitLog).forEach(k=> visitLog[k] = savedVisitLog[k]);
+  currentSessionId = savedSessionId;
+}
+
+async function loadHistoryList(){
+  historyList.innerHTML = '<div class="empty">Se încarcă...</div>';
+  if(!sb){ historyList.innerHTML = '<div class="empty">Fără conexiune la baza de date.</div>'; return; }
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  const sinceStr = since.toISOString().slice(0,10);
+  try{
+    const { data: sessions, error } = await sb.from('route_sessions')
+      .select('*')
+      .gte('session_date', sinceStr)
+      .order('session_date', {ascending:false})
+      .order('created_at', {ascending:false});
+    if(error) throw error;
+    if(!sessions || sessions.length === 0){
+      historyList.innerHTML = '<div class="empty">Nicio rută în ultimele 30 de zile.</div>';
+      return;
+    }
+
+    const ids = sessions.map(s=>s.id);
+    const { data: allVisits } = await sb.from('visit_logs').select('*').in('session_id', ids);
+    const visitsBySession = {};
+    (allVisits||[]).forEach(v=>{
+      visitsBySession[v.session_id] = visitsBySession[v.session_id] || [];
+      visitsBySession[v.session_id].push(v);
+    });
+
+    historyList.innerHTML = sessions.map((s,i)=>{
+      const visits = visitsBySession[s.id] || [];
+      const visited = visits.filter(v=>v.arrive_time || v.obs).length;
+      const drivers = [s.driver1, s.driver2].filter(Boolean).join(' & ');
+      const vehicle = [s.vehicle_brand, s.vehicle_plate].filter(Boolean).join(' - ');
+      const dateLabel = new Date(s.session_date+'T00:00:00').toLocaleDateString('ro-RO', {weekday:'long', day:'numeric', month:'long'});
+      return `<div class="history-item">
+        <div class="h-top">
+          <div>
+            <div class="h-date">${escapeHtml(dateLabel)}</div>
+            <div class="h-sub">${escapeHtml(drivers)} · ${escapeHtml(vehicle)}${s.zona ? ' · '+escapeHtml(s.zona) : ''}</div>
+          </div>
+          <div class="h-status ${s.status}">${s.status === 'activa' ? 'Activă' : 'Finalizată'}</div>
+        </div>
+        <div class="h-stats"><span><b>${visited}</b> vizite</span><span>Km: ${s.km_start ?? '-'} → ${s.km_end ?? '-'}</span></div>
+        <div class="h-btn" data-idx="${i}">🧾 Regenerează raport PDF</div>
+      </div>`;
+    }).join('');
+
+    historyList.querySelectorAll('.h-btn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        btn.textContent = '⏳ Se generează...';
+        await regenerateHistoryPdf(sessions[parseInt(btn.dataset.idx,10)]);
+        btn.textContent = '🧾 Regenerează raport PDF';
+      });
+    });
+  }catch(err){
+    console.error(err);
+    historyList.innerHTML = '<div class="empty">Eroare la încărcare: '+escapeHtml(err.message)+'</div>';
+  }
+}
+
+btnOpenHistory.addEventListener('click', ()=>{
+  pageStart.style.display = 'none';
+  pageHistory.style.display = 'block';
+  loadHistoryList();
+});
+btnHistoryBack.addEventListener('click', ()=>{
+  pageHistory.style.display = 'none';
+  pageStart.style.display = 'block';
+});
 
 
 statusRow.addEventListener('click', (e)=>{
@@ -1866,23 +2037,21 @@ function cardHtml(r, orderNum, historyInfo){
   const top = `
     <div class="card-top">
       <div class="client">${escapeHtml(r.client)}</div>
-      <div class="badges">
-        ${historyInfo && historyInfo.valid ? `<span class="time-badge">🕐 ${historyInfo.hh}:${historyInfo.mm} · ${historyInfo.duration} min</span>` : ''}
-        ${historyInfo && !historyInfo.valid && historyInfo.code ? `<span class="code-badge">${escapeHtml(historyInfo.code)}</span>` : ''}
-        ${r.ziua ? `<span class="badge day">${r.ziua}</span>`:''}
-        ${r.masina ? `<span class="badge masina ${masinaClass}">${r.masina}</span>`:''}
-      </div>
+      <a class="nav-top-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
     </div>`;
   return `
   <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''}">
     ${orderNum ? `<div class="card-top-with-order"><div class="order-badge">${orderNum}</div>${top}</div>` : top}
     <div class="loc"><b>${escapeHtml(r.localitate)}</b>${r.jud ? ' · '+r.jud:''}${r.locatie ? ' — '+escapeHtml(r.locatie):''}</div>
     <div class="meta-row">${qtyLabel(r)}</div>
-    <div class="actions">
-      <a class="btn maps ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
-      <a class="btn call ${hasTel?'':'disabled'}" href="${hasTel? telUrl(r.telefon):'#'}">📞 Sună</a>
-    </div>
     ${visitRowHtml(r)}
+    <div class="bottom-tag-row">
+      ${historyInfo && historyInfo.valid ? `<span class="time-badge">🕐 ${historyInfo.hh}:${historyInfo.mm} · ${historyInfo.duration} min</span>` : ''}
+      ${historyInfo && !historyInfo.valid && historyInfo.code ? `<span class="code-badge">${escapeHtml(historyInfo.code)}</span>` : ''}
+      ${r.ziua ? `<span class="badge day">${r.ziua}</span>`:''}
+      ${r.masina ? `<span class="badge masina ${masinaClass}">${r.masina}</span>`:''}
+      <a class="call-btn ${hasTel?'':'disabled'}" href="${hasTel? telUrl(r.telefon):'#'}">📞 Sună</a>
+    </div>
   </div>`;
 }
 
