@@ -314,7 +314,7 @@
     padding:10px 12px; margin-bottom:8px; font-size:0.82rem;
   }
   .resume-item .info b{color:var(--text); display:block; font-size:0.88rem;}
-  .resume-item .info span{color:var(--text-dim); font-size:0.76rem;}
+  .resume-item .info span{color:var(--text-dim); font-size:0.76rem; display:block; margin-top:1px;}
   .resume-item .go-btn{
     background:var(--activ); color:#06140d; font-weight:700; font-size:0.78rem;
     padding:8px 14px; border-radius:8px; cursor:pointer; white-space:nowrap; flex:none;
@@ -392,9 +392,14 @@
       <label>Km bord start <span style="color:var(--inactiv);">*</span></label>
       <input type="number" id="dsKmStart" placeholder="Km bord start (obligatoriu)">
     </div>
+    <div class="start-field">
+      <label>Zona (ex. PETROSANI, MOTRU, TG JIU)</label>
+      <input type="text" id="dsZona" placeholder="Zona rutei">
+    </div>
 
-    <div class="wizard-btn" id="btnStartDay">✅ Începe ziua →</div>
     <div class="wizard-btn" id="btnShareStart">📤 Trimite pe WhatsApp</div>
+    <div class="wizard-btn" id="btnStartDay" style="opacity:0.4; pointer-events:none;">🔒 Trimite mai întâi pe WhatsApp</div>
+    <div class="route-config-note" id="startLockNote" style="text-align:center;">Trimite mesajul pe grup înainte să poți începe ziua.</div>
 
     <div class="wizard-btn" id="manageToggle">⚙️ Gestionează șoferi și mașini</div>
     <div class="manage-panel" id="managePanel" style="display:none;">
@@ -524,7 +529,10 @@
       <input type="number" id="kmEndInput2" placeholder="Km bord sfârșit (obligatoriu)" required>
     </div>
 
-    <div class="tag-btn" id="btnGeneratePdf2" style="margin-top:10px;">🧾 Generează raport PDF</div>
+    <div class="wizard-btn" id="btnSaveFinish" style="margin-top:10px; background:var(--activ); color:#06140d;">💾 Salvează</div>
+    <div id="savedConfirm" class="route-config-note" style="display:none; text-align:center; color:var(--activ);">✅ Salvat cu succes</div>
+    <div class="tag-btn" id="btnGeneratePdf2" style="margin-top:10px; display:none;">🧾 Generează raport PDF</div>
+    <div class="wizard-btn" id="btnGoHome" style="margin-top:10px; display:none; background:var(--panel-2); color:var(--text); border:1px solid var(--border);">🏠 Acasă</div>
     <div class="finish-back" id="btnBackToRoute">← Înapoi la rută</div>
   </div>
 </div>
@@ -769,12 +777,17 @@ const finishBreakdown = document.getElementById('finishBreakdown');
 const kmEndInput2 = document.getElementById('kmEndInput2');
 const btnGeneratePdf2 = document.getElementById('btnGeneratePdf2');
 const btnBackToRoute = document.getElementById('btnBackToRoute');
+const btnSaveFinish = document.getElementById('btnSaveFinish');
+const savedConfirm = document.getElementById('savedConfirm');
+const btnGoHome = document.getElementById('btnGoHome');
 const startNowDisplay = document.getElementById('startNowDisplay');
 const selDriver1 = document.getElementById('selDriver1');
 const selDriver2 = document.getElementById('selDriver2');
 const selBrand = document.getElementById('selBrand');
 const selPlate = document.getElementById('selPlate');
 const dsKmStart = document.getElementById('dsKmStart');
+const dsZona = document.getElementById('dsZona');
+const startLockNote = document.getElementById('startLockNote');
 const btnStartDay = document.getElementById('btnStartDay');
 const btnShareStart = document.getElementById('btnShareStart');
 const manageToggle = document.getElementById('manageToggle');
@@ -863,6 +876,7 @@ async function findOrCreateSession(){
       dayStart.plate = s.vehicle_plate;
       dayStart.kmStart = s.km_start;
       dayStart.driver2 = s.driver2;
+      dayStart.zona = s.zona || '';
       const { data: visits, error: visitsErr } = await sb
         .from('visit_logs')
         .select('*')
@@ -889,6 +903,7 @@ async function findOrCreateSession(){
         vehicle_brand: dayStart.brand,
         vehicle_plate: dayStart.plate,
         km_start: dayStart.kmStart,
+        zona: dayStart.zona || null,
         status: 'activa',
       })
       .select()
@@ -912,6 +927,7 @@ async function resumeSession(session){
     kmStart: session.km_start,
     driver1: session.driver1,
     driver2: session.driver2,
+    zona: session.zona || '',
     startTime: new Date(session.created_at),
   };
   setSyncStatus('syncing');
@@ -951,6 +967,12 @@ async function resumeSession(session){
   }
 }
 
+function sortModeLabel(sortVal){
+  if(sortVal === 'depot') return '🧭 GPS optimizat';
+  if(sortVal && sortVal !== '') return `🕐 Istoric W${sortVal}`;
+  return '✖ Ordine normală';
+}
+
 async function checkActiveSessions(){
   if(!sb) return;
   const todayStr = new Date().toISOString().slice(0,10);
@@ -966,8 +988,10 @@ async function checkActiveSessions(){
     resumeList.innerHTML = data.map((s,i)=>{
       const drivers = [s.driver1, s.driver2].filter(Boolean).join(' & ');
       const vehicle = [s.vehicle_brand, s.vehicle_plate].filter(Boolean).join(' - ');
+      const ziuaLabel = s.last_ziua ? (s.last_ziua === 'TOATE' ? 'Toate zilele' : s.last_ziua) : null;
+      const routeLine = ziuaLabel ? `${escapeHtml(ziuaLabel)} · ${escapeHtml(sortModeLabel(s.last_sort_mode))}` : null;
       return `<div class="resume-item">
-        <div class="info"><b>${escapeHtml(drivers)}</b><span>${escapeHtml(vehicle)}</span></div>
+        <div class="info"><b>${escapeHtml(drivers)}</b><span>${escapeHtml(vehicle)}</span>${routeLine ? `<span>${routeLine}</span>` : ''}</div>
         <div class="go-btn" data-idx="${i}">Reia →</div>
       </div>`;
     }).join('');
@@ -1150,20 +1174,57 @@ function showFinishPage(){
   `;
   pageApp.style.display = 'none';
   pageFinish.style.display = 'block';
+
+  // reset button states each time the finish page is (re)entered
+  btnSaveFinish.style.display = 'block';
+  btnSaveFinish.textContent = '💾 Salvează';
+  savedConfirm.style.display = 'none';
+  btnGeneratePdf2.style.display = 'none';
+  btnGoHome.style.display = 'none';
 }
 
 btnBackToRoute.addEventListener('click', ()=>{
   pageFinish.style.display = 'none';
   pageApp.style.display = 'block';
 });
-btnGeneratePdf2.addEventListener('click', ()=>{
+
+btnSaveFinish.addEventListener('click', async ()=>{
   if(!kmEndInput2.value || kmEndInput2.value.trim() === ''){
-    alert('Completează Km bord sfârșit înainte de a genera raportul.');
+    alert('Completează Km bord sfârșit înainte de a salva.');
     kmEndInput2.focus();
     return;
   }
-  finalizeSessionSync(parseInt(kmEndInput2.value,10));
+  btnSaveFinish.textContent = '⏳ Se salvează...';
+  await finalizeSessionSync(parseInt(kmEndInput2.value,10));
+  btnSaveFinish.style.display = 'none';
+  savedConfirm.style.display = 'block';
+  btnGeneratePdf2.style.display = 'block';
+  btnGoHome.style.display = 'block';
+});
+
+btnGeneratePdf2.addEventListener('click', ()=>{
   generateDailyPdf(kmEndInput2);
+});
+
+function lockStartDay(){
+  btnStartDay.style.opacity = '0.4';
+  btnStartDay.style.pointerEvents = 'none';
+  btnStartDay.textContent = '🔒 Trimite mai întâi pe WhatsApp';
+  startLockNote.style.display = 'block';
+}
+
+btnGoHome.addEventListener('click', ()=>{
+  pageFinish.style.display = 'none';
+  pageApp.style.display = 'none';
+  pageConfig.style.display = 'none';
+  pageStart.style.display = 'block';
+  headerSummary.style.display = 'none';
+  resumeBox.style.display = 'none';
+  selDriver1.value = ''; selDriver2.value = '';
+  selBrand.value = ''; selPlate.value = '';
+  dsKmStart.value = ''; dsZona.value = '';
+  lockStartDay();
+  checkActiveSessions();
 });
 
 function populateSelect(sel, items, placeholder){
@@ -1422,6 +1483,8 @@ function renderDayStartSummary(){
     selBrand.value = dayStart.brand || '';
     selPlate.value = dayStart.plate || '';
     dsKmStart.value = dayStart.kmStart ?? '';
+    dsZona.value = dayStart.zona || '';
+    unlockStartDay();
     pageApp.style.display = 'none';
     pageStart.style.display = 'block';
   });
@@ -1443,6 +1506,7 @@ btnStartDay.addEventListener('click', async ()=>{
     kmStart: dsKmStart.value ? parseInt(dsKmStart.value,10) : null,
     driver1: selDriver1.value,
     driver2: selDriver2.value,
+    zona: dsZona.value.trim().toUpperCase(),
     startTime: new Date(),
   };
   btnStartDay.textContent = '⏳ Se conectează...';
@@ -1467,15 +1531,37 @@ btnStartDay.addEventListener('click', async ()=>{
   }
 });
 
+const DAY_NAMES_RO = ['Duminică','Luni','Marți','Miercuri','Joi','Vineri','Sâmbătă'];
+const MONTH_FULL_RO = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
+
 function buildStartMessage(){
   const now = new Date();
-  const lines = ['🚀 Start rută Euro Ecologic', `Data: ${now.toLocaleDateString('ro-RO')} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`];
+  const dayAbbr = DAY_NAMES_RO[now.getDay()].slice(0,3);
+  const dateStr = `${pad2(now.getDate())} ${MONTH_FULL_RO[now.getMonth()]} ${now.getFullYear()}`;
+  const timeStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+  const lines = [];
+  if(dsZona.value.trim()) lines.push(`*Ruta: ${dsZona.value.trim().toUpperCase()}*`);
+  lines.push(`${dayAbbr} - ${dateStr} ; Ora ${timeStr}`);
   if(selDriver1.value) lines.push(`Șofer 1: ${selDriver1.value}`);
   if(selDriver2.value) lines.push(`Șofer 2: ${selDriver2.value}`);
-  const vehicle = [selBrand.value, selPlate.value].filter(Boolean).join(' - ');
-  if(vehicle) lines.push(`Mașină: ${vehicle}`);
-  if(dsKmStart.value) lines.push(`Km bord start: ${dsKmStart.value}`);
+
+  const plateDashed = (selPlate.value||'').trim().replace(/\s+/g,'-');
+  let vehicleLine = '';
+  if(selBrand.value && plateDashed) vehicleLine = `${selBrand.value} - NR: ${plateDashed}`;
+  else if(selBrand.value) vehicleLine = selBrand.value;
+  else if(plateDashed) vehicleLine = `NR: ${plateDashed}`;
+  if(vehicleLine) lines.push(vehicleLine);
+
+  if(dsKmStart.value) lines.push(`Km START: ${dsKmStart.value}`);
   return lines.join('\n');
+}
+
+function unlockStartDay(){
+  btnStartDay.style.opacity = '1';
+  btnStartDay.style.pointerEvents = 'auto';
+  btnStartDay.textContent = '✅ Începe ziua →';
+  startLockNote.style.display = 'none';
 }
 
 btnShareStart.addEventListener('click', async ()=>{
@@ -1489,6 +1575,7 @@ btnShareStart.addEventListener('click', async ()=>{
     return;
   }
   const text = buildStartMessage();
+  unlockStartDay();
   if(navigator.share){
     // Opens the phone's native share sheet, showing WhatsApp, WhatsApp Business,
     // and any other app that can receive text, so the user picks exactly which one.
