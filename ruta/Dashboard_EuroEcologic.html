@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Euro Ecologic</title>
+
+<link rel="manifest" href="manifest-dashboard.json">
+<meta name="theme-color" content="#ff8a3d">
+<link rel="icon" href="icon-192-dashboard.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192-dashboard.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dashboard EE">
+<meta name="mobile-web-app-capable" content="yes">
+
+<style>
+  :root{
+    --bg: #10161c;
+    --panel: #171f27;
+    --panel-2: #1d2732;
+    --border: #2a3540;
+    --text: #e7edf2;
+    --text-dim: #93a3b0;
+    --accent: #ff8a3d;
+    --accent-2: #3ddc97;
+    --activ: #3ddc97;
+    --inactiv: #ff5d5d;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--text); font-family:'Segoe UI', Roboto, Arial, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px; margin:0 auto; padding:16px 16px 60px;}
+
+  header{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+    padding:6px 2px 16px; border-bottom:1px solid var(--border); margin-bottom:16px;
+  }
+  header h1{font-size:1.2rem; margin:0; font-weight:700;}
+  header h1 span{color:var(--accent);}
+  .live-badge{
+    display:flex; align-items:center; gap:6px; font-size:0.78rem; color:var(--text-dim);
+    background:var(--panel-2); border:1px solid var(--border); padding:5px 12px; border-radius:20px;
+  }
+  .live-dot{width:8px; height:8px; border-radius:50%; background:var(--activ); animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%{opacity:1;} 50%{opacity:0.3;} 100%{opacity:1;}}
+
+  .filter-row{display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;}
+  .filter-row select, .filter-row input{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:9px;
+    padding:9px 12px; font-size:0.9rem;
+  }
+
+  .summary-bar{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:10px; margin-bottom:18px;
+  }
+  .summary-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center;
+  }
+  .summary-card .num{font-size:1.6rem; font-weight:800; color:var(--accent-2);}
+  .summary-card .lbl{font-size:0.76rem; color:var(--text-dim); margin-top:2px;}
+
+  .session-list{display:flex; flex-direction:column; gap:12px;}
+  .session-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px;
+    position:relative; overflow:hidden;
+  }
+  .session-card::before{content:''; position:absolute; left:0; top:0; bottom:0; width:4px;}
+  .session-card.activa::before{background:var(--activ);}
+  .session-card.finalizata::before{background:var(--text-dim);}
+
+  .session-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:8px;}
+  .session-drivers{font-weight:700; font-size:1.02rem;}
+  .session-vehicle{font-size:0.82rem; color:var(--text-dim); margin-top:2px;}
+  .status-badge{
+    font-size:0.68rem; font-weight:800; padding:4px 10px; border-radius:20px; text-transform:uppercase;
+    white-space:nowrap;
+  }
+  .status-badge.activa{background:rgba(61,220,151,0.15); color:var(--activ); border:1px solid rgba(61,220,151,0.4);}
+  .status-badge.finalizata{background:rgba(147,163,176,0.15); color:var(--text-dim); border:1px solid var(--border);}
+
+  .session-stats{display:flex; gap:18px; flex-wrap:wrap; margin-top:10px;}
+  .stat{text-align:center;}
+  .stat b{display:block; font-size:1.15rem; color:var(--text);}
+  .stat span{font-size:0.72rem; color:var(--text-dim);}
+
+  .session-km{font-size:0.78rem; color:var(--text-dim); margin-top:10px;}
+  .session-time{font-size:0.72rem; color:var(--text-dim); margin-top:6px;}
+
+  .empty{text-align:center; color:var(--text-dim); padding:50px 10px;}
+  .error-box{
+    background:rgba(255,93,93,0.12); border:1px solid rgba(255,93,93,0.4); color:var(--inactiv);
+    border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.85rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Dashboard <span>Euro Ecologic</span></h1>
+    <div class="live-badge"><div class="live-dot"></div> Live</div>
+  </header>
+
+  <div id="errorBox"></div>
+
+  <div class="filter-row">
+    <input type="date" id="dateFilter">
+    <select id="statusFilter">
+      <option value="TOATE">Toate rutele</option>
+      <option value="activa">Doar active</option>
+      <option value="finalizata">Doar finalizate</option>
+    </select>
+  </div>
+
+  <div class="summary-bar" id="summaryBar"></div>
+  <div class="session-list" id="sessionList"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://edjoyirtxepgdldcghdq.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_YbJkzF4SPNXICLOwVUMGOA_pCksKLGl';
+const sb = (typeof supabase !== 'undefined') ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+const dateFilter = document.getElementById('dateFilter');
+const statusFilter = document.getElementById('statusFilter');
+const summaryBar = document.getElementById('summaryBar');
+const sessionList = document.getElementById('sessionList');
+const errorBox = document.getElementById('errorBox');
+
+dateFilter.value = new Date().toISOString().slice(0,10);
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+function fmtTime(iso){
+  if(!iso) return '-';
+  const d = new Date(iso);
+  return pad2(d.getHours())+':'+pad2(d.getMinutes());
+}
+
+async function loadDashboard(){
+  if(!sb){
+    errorBox.innerHTML = '<div class="error-box">⚠️ Nu s-a putut încărca conexiunea la baza de date. Verifică internetul și reîncarcă pagina.</div>';
+    return;
+  }
+  errorBox.innerHTML = '';
+
+  const dateVal = dateFilter.value;
+  const statusVal = statusFilter.value;
+
+  let query = sb.from('route_sessions').select('*').eq('session_date', dateVal).order('created_at', {ascending:false});
+  if(statusVal !== 'TOATE') query = query.eq('status', statusVal);
+
+  const { data: sessions, error } = await query;
+  if(error){
+    errorBox.innerHTML = `<div class="error-box">⚠️ Eroare la citirea datelor: ${error.message}</div>`;
+    return;
+  }
+
+  if(!sessions || sessions.length === 0){
+    summaryBar.innerHTML = '';
+    sessionList.innerHTML = '<div class="empty">Nicio rută pentru data selectată.</div>';
+    return;
+  }
+
+  const sessionIds = sessions.map(s=>s.id);
+  const { data: allVisits, error: visitsErr } = await sb
+    .from('visit_logs')
+    .select('*')
+    .in('session_id', sessionIds);
+  if(visitsErr){
+    errorBox.innerHTML = `<div class="error-box">⚠️ Eroare la citirea vizitelor: ${visitsErr.message}</div>`;
+  }
+  const visitsBySession = {};
+  (allVisits||[]).forEach(v=>{
+    visitsBySession[v.session_id] = visitsBySession[v.session_id] || [];
+    visitsBySession[v.session_id].push(v);
+  });
+
+  // Summary
+  const activeCount = sessions.filter(s=>s.status==='activa').length;
+  const finishedCount = sessions.filter(s=>s.status==='finalizata').length;
+  const totalVisits = (allVisits||[]).length;
+  summaryBar.innerHTML = `
+    <div class="summary-card"><div class="num">${sessions.length}</div><div class="lbl">Rute azi</div></div>
+    <div class="summary-card"><div class="num">${activeCount}</div><div class="lbl">Active acum</div></div>
+    <div class="summary-card"><div class="num">${finishedCount}</div><div class="lbl">Finalizate</div></div>
+    <div class="summary-card"><div class="num">${totalVisits}</div><div class="lbl">Vizite totale</div></div>
+  `;
+
+  function sortModeLabelDash(sortVal){
+  if(sortVal === 'depot') return '🧭 GPS optimizat';
+  if(sortVal && sortVal !== '') return `🕐 Istoric W${sortVal}`;
+  return '✖ Ordine normală';
+}
+
+sessionList.innerHTML = sessions.map(s=>{
+    const visits = visitsBySession[s.id] || [];
+    const normal = visits.filter(v=>!v.obs && v.arrive_time).length;
+    const la = visits.filter(v=>v.obs==='LA').length;
+    const omis = visits.filter(v=>v.obs==='O').length;
+    const drivers = [s.driver1, s.driver2].filter(Boolean).join(' & ') || 'Fără șofer';
+    const vehicle = [s.vehicle_brand, s.vehicle_plate].filter(Boolean).join(' - ') || '-';
+    const kmLine = (s.km_start!=null || s.km_end!=null)
+      ? `Km: ${s.km_start ?? '-'} → ${s.km_end ?? '-'}` + (s.km_start!=null && s.km_end!=null ? ` (${s.km_end-s.km_start} km)` : '')
+      : '';
+    const ziuaLabel = s.last_ziua ? (s.last_ziua === 'TOATE' ? 'Toate zilele' : s.last_ziua) : null;
+    const routeInfoParts = [];
+    if(s.zona) routeInfoParts.push(`📍 ${s.zona}`);
+    if(ziuaLabel) routeInfoParts.push(`${ziuaLabel} · ${sortModeLabelDash(s.last_sort_mode)}`);
+    const routeInfoLine = routeInfoParts.join(' &nbsp;·&nbsp; ');
+    return `
+    <div class="session-card ${s.status}">
+      <div class="session-top">
+        <div>
+          <div class="session-drivers">${drivers}</div>
+          <div class="session-vehicle">${vehicle}</div>
+          ${routeInfoLine ? `<div class="session-vehicle" style="color:var(--accent-2);">${routeInfoLine}</div>` : ''}
+        </div>
+        <div class="status-badge ${s.status}">${s.status === 'activa' ? '🟢 Activă' : '⚪ Finalizată'}</div>
+      </div>
+      <div class="session-stats">
+        <div class="stat"><b>${normal}</b><span>Normal</span></div>
+        <div class="stat"><b>${la}</b><span>Lipsă acces</span></div>
+        <div class="stat"><b>${omis}</b><span>Omis</span></div>
+        <div class="stat"><b>${visits.length}</b><span>Total</span></div>
+      </div>
+      ${kmLine ? `<div class="session-km">${kmLine}</div>` : ''}
+      <div class="session-time">Pornit la ${fmtTime(s.created_at)}${s.updated_at ? ' · ultima actualizare ' + fmtTime(s.updated_at) : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+dateFilter.addEventListener('change', loadDashboard);
+statusFilter.addEventListener('change', loadDashboard);
+
+loadDashboard();
+
+// Live updates: re-load whenever anything changes in either table
+if(sb){
+  sb.channel('dashboard-updates')
+    .on('postgres_changes', {event:'*', schema:'public', table:'route_sessions'}, loadDashboard)
+    .on('postgres_changes', {event:'*', schema:'public', table:'visit_logs'}, loadDashboard)
+    .subscribe();
+
+  // Fallback safety-net polling every 20s in case realtime misses an event
+  setInterval(loadDashboard, 20000);
+}
+</script>
+</body>
+</html>

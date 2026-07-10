@@ -1,0 +1,17 @@
+{
+  "name": "Dashboard EuroEcologic",
+  "short_name": "Dashboard EE",
+  "description": "Monitorizare live rute EuroEcologic",
+  "start_url": "./Dashboard_EuroEcologic.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#10161c",
+  "theme_color": "#ff8a3d",
+  "icons": [
+    { "src": "icon-192-dashboard.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-dashboard.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192-dashboard.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512-dashboard.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
