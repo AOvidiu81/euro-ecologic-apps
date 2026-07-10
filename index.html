@@ -6,8 +6,11 @@
 <title>Euro Ecologic — Șofer</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EE Șofer">
 <meta name="theme-color" content="#173d2c">
-<link rel="manifest" href='data:application/manifest+json,{"name":"Euro Ecologic Sofer","short_name":"EE Sofer","start_url":"./","display":"standalone","background_color":"%23173d2c","theme_color":"%23173d2c","icons":[]}'>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -29,6 +32,9 @@ h1,h2,h3,.brand{font-family:'Manrope',sans-serif;}
 .header-app .brand{font-size:16px;font-weight:800;}
 .header-app .brand small{display:block;font-family:'Inter';font-weight:400;font-size:11px;color:#9fc7ac;}
 .header-app button.iesire{all:unset;cursor:pointer;color:#cfe8db;font-size:12.5px;font-weight:600;}
+.tab-bar-sofer{display:flex;background:#fff;border-bottom:1.5px solid var(--linie);position:sticky;top:56px;z-index:9;}
+.tab-bar-sofer button{all:unset;flex:1;text-align:center;padding:11px 0;font-size:13px;font-weight:700;color:var(--text-slab);cursor:pointer;border-bottom:3px solid transparent;}
+.tab-bar-sofer button.activ{color:var(--verde);border-bottom-color:var(--verde);}
 
 .ecran{padding:18px;}
 .gol{text-align:center;padding:60px 20px;color:var(--text-slab);}
@@ -160,6 +166,7 @@ const state = {
   semnatarTip: "client", // client | sofer
   semnaturaDataUrl: null,
   nrPv: "",
+  rutaZileiId: localStorage.getItem("euroeco_ruta_zilei") || "",
 };
 
 function toast(msg, eroare=false){
@@ -175,6 +182,74 @@ function esc(s){ return (s===null||s===undefined) ? "" : String(s).replace(/[&<>
 function fmtData(d){ if(!d) return "-"; return new Date(d).toLocaleDateString("ro-RO",{day:"2-digit",month:"2-digit",year:"numeric"}); }
 async function q(promise, msg="Eroare"){ const {data,error} = await promise; if(error){ console.error(error); toast(msg+": "+error.message, true); throw error; } return data; }
 
+/* ===================== COADA OFFLINE ===================== */
+/* Daca nu e semnal, operatiile critice (finalizare, problema, sosire/plecare) se salveaza local
+   si se retrimit automat cand revine conexiunea, fara ca soferul sa piarda ceva. */
+const CHEIE_COADA = "euroeco_coada_offline";
+
+function citesteCoada(){ try{ return JSON.parse(localStorage.getItem(CHEIE_COADA)||"[]"); }catch(e){ return []; } }
+function scrieCoada(coada){ localStorage.setItem(CHEIE_COADA, JSON.stringify(coada)); }
+
+/* Incearca operatia direct; daca esueaza (fara net), o pune in coada si continua fara sa blocheze soferul. */
+async function salveazaCuCoadaOffline(operatie, mesajSucces){
+  try{
+    if(operatie.type==="insert"){
+      const rezultat = await supa.from(operatie.table).insert(operatie.payload).select().single();
+      if(rezultat.error) throw rezultat.error;
+      toast(mesajSucces || "Salvat");
+      return { ok:true, date: rezultat.data };
+    } else {
+      const rezultat = await supa.from(operatie.table).update(operatie.payload).eq("id", operatie.matchId);
+      if(rezultat.error) throw rezultat.error;
+      toast(mesajSucces || "Salvat");
+      return { ok:true };
+    }
+  }catch(e){
+    // fara net (sau eroare de retea) - punem in coada pentru retrimitere automata
+    const coada = citesteCoada();
+    const itemCoada = {...operatie, idLocal: "local-"+Date.now()+"-"+Math.random().toString(36).slice(2,7), incercariEsuate:0};
+    coada.push(itemCoada);
+    scrieCoada(coada);
+    toast("📡 Fără semnal — salvat pe telefon, se trimite automat când revine net", true);
+    return { ok:false, idLocal: itemCoada.idLocal };
+  }
+}
+
+async function proceseazaCoadaOffline(){
+  let coada = citesteCoada();
+  if(coada.length===0) return;
+  const ramase = [];
+  let reusite = 0;
+  for(const item of coada){
+    try{
+      if(item.type==="insert"){
+        const r = await supa.from(item.table).insert(item.payload);
+        if(r.error) throw r.error;
+      } else {
+        const r = await supa.from(item.table).update(item.payload).eq("id", item.matchId);
+        if(r.error) throw r.error;
+      }
+      reusite++;
+    }catch(e){
+      item.incercariEsuate = (item.incercariEsuate||0)+1;
+      ramase.push(item);
+    }
+  }
+  scrieCoada(ramase);
+  if(reusite>0) toast(`✓ ${reusite} operații trimise din coada offline`);
+  actualizeazaIndicatorCoada();
+}
+
+function actualizeazaIndicatorCoada(){
+  const nr = citesteCoada().length;
+  const el = document.getElementById("indicator-coada-offline");
+  if(el) el.style.display = nr>0 ? "flex" : "none";
+  if(el) el.querySelector("span").textContent = nr;
+}
+
+window.addEventListener("online", proceseazaCoadaOffline);
+setInterval(proceseazaCoadaOffline, 20000); // reincearca si periodic, cat timp aplicatia e deschisa
+
 /* ===================== RANDARE PRINCIPALA ===================== */
 function randApp(){
   const app = document.getElementById("app");
@@ -182,16 +257,28 @@ function randApp(){
   app.innerHTML = `
     <div class="header-app">
       <div class="brand">Euro Ecologic <small>${state.soferCurent?esc(state.soferCurent.nume):""}</small></div>
-      ${state.ecran!=="login" ? `<button class="iesire" id="btn-iesire">Ieși din cont</button>` : ""}
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="indicator-coada-offline" style="display:none;align-items:center;gap:4px;background:#c98a1f;color:#fff;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700;">📡<span>0</span></div>
+        ${state.ecran!=="login" ? `<button class="iesire" id="btn-iesire">Ieși din cont</button>` : ""}
+      </div>
     </div>
+    ${(state.ecran==="lista"||state.ecran==="ruta-zilei") ? `
+      <div class="tab-bar-sofer">
+        <button data-ec="lista" class="${state.ecran==='lista'?'activ':''}">📋 Comenzi</button>
+        <button data-ec="ruta-zilei" class="${state.ecran==='ruta-zilei'?'activ':''}">🧭 Ruta zilei</button>
+      </div>
+    ` : ""}
     <div class="ecran" id="ecran-continut"></div>
   `;
+  actualizeazaIndicatorCoada();
   const bi = document.getElementById("btn-iesire");
   if(bi) bi.addEventListener("click", ()=>{
     if(confirm("Ieși din contul curent?")){ localStorage.removeItem("euroeco_sofer_curent"); state.soferCurent=null; state.ecran="login"; randApp(); }
   });
+  document.querySelectorAll(".tab-bar-sofer button").forEach(b=>b.addEventListener("click", ()=>{ state.ecran = b.dataset.ec; randApp(); }));
   if(state.ecran==="lista") randListaSarcini();
   else if(state.ecran==="executie") randExecutieSarcina();
+  else if(state.ecran==="ruta-zilei") randRutaZilei();
 }
 
 /* ===================== LOGIN ===================== */
@@ -244,6 +331,160 @@ async function randLogin(app){
 }
 
 /* ===================== LISTA SARCINI ===================== */
+/* ===================== RUTA ZILEI (Am ajuns / Am plecat, cu GPS) ===================== */
+const ZILE_SAPTAMANA = {1:"Luni",2:"Marți",3:"Miercuri",4:"Joi",5:"Vineri",6:"Sâmbătă",7:"Duminică"};
+const LABEL_COD = {L:"Lipsă acces", O:"Omis", R:"Refuzat", A:"Amânat", V:"Vacanță/nelocuit", S:"Suspendat", M:"Mutat"};
+
+function ziSaptamanaAzi(){
+  const js = new Date().getDay();
+  return js===0 ? 7 : js;
+}
+function oraAcum(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0");
+}
+
+async function randRutaZilei(){
+  const el = document.getElementById("ecran-continut");
+  el.innerHTML = `<div class="gol">Se încarcă...</div>`;
+
+  const rute = await q(supa.from("rute").select("*").order("nume"), "Nu am putut încărca rutele");
+  if(!state.rutaZileiId && rute.length) state.rutaZileiId = rute[0].id;
+
+  el.innerHTML = `
+    <div class="camp">
+      <label>Ruta mea de azi</label>
+      <select id="sel-ruta-zilei">
+        <option value="">— alege ruta —</option>
+        ${rute.map(r=>`<option value="${r.id}" ${state.rutaZileiId===r.id?"selected":""}>${esc(r.nume)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="gps-info">${ZILE_SAPTAMANA[ziSaptamanaAzi()]}, ${fmtData(new Date().toISOString().slice(0,10))}</div>
+    <div id="lista-ruta-zilei" style="margin-top:12px;"></div>
+  `;
+  document.getElementById("sel-ruta-zilei").addEventListener("change", e=>{
+    state.rutaZileiId = e.target.value;
+    localStorage.setItem("euroeco_ruta_zilei", state.rutaZileiId);
+    randRutaZilei();
+  });
+
+  const zona = document.getElementById("lista-ruta-zilei");
+  if(!state.rutaZileiId){
+    zona.innerHTML = `<div class="gol"><div class="emoji">🧭</div>Alege ruta pe care o conduci azi.</div>`;
+    return;
+  }
+
+  const ziNr = ziSaptamanaAzi();
+  const azi = new Date().toISOString().slice(0,10);
+  const [programari, anexe, contracte, clienti] = await Promise.all([
+    q(supa.from("programari_servisare").select("*").eq("activ",true).eq("zi_saptamana",ziNr).eq("ruta_id", state.rutaZileiId), "Nu am putut încărca ruta"),
+    q(supa.from("anexe").select("*")), q(supa.from("contracte").select("*")), q(supa.from("clienti").select("*")),
+  ]);
+
+  if(programari.length===0){
+    zona.innerHTML = `<div class="gol"><div class="emoji">☀️</div>Nicio oprire alocată azi pe această rută.</div>`;
+    return;
+  }
+
+  const anexaIds = programari.map(p=>p.anexa_id);
+  const sarciniAzi = await q(supa.from("sarcini").select("*").eq("data",azi).eq("tip_actiune","SERVISARE").in("anexa_id", anexaIds), "Nu am putut încărca opririle de azi");
+
+  // includem si ce e in coada offline (inca netrimis), ca soferul sa vada corect starea reala
+  const coada = citesteCoada();
+  const inserariPendinte = coada.filter(it=>it.type==="insert" && it.table==="sarcini" && it.payload.data===azi && anexaIds.includes(it.payload.anexa_id));
+  const actualizariPendinte = coada.filter(it=>it.type==="update" && it.table==="sarcini");
+
+  function gasesteExistenta(anexaId){
+    let ex = sarciniAzi.find(s=>s.anexa_id===anexaId);
+    if(!ex){
+      const ins = inserariPendinte.find(it=>it.payload.anexa_id===anexaId);
+      if(ins) ex = {...ins.payload, id: ins.idLocal, _pending:true};
+    }
+    if(ex){
+      const upd = actualizariPendinte.find(it=>it.matchId===ex.id);
+      if(upd) ex = {...ex, ...upd.payload, _pending:true};
+    }
+    return ex;
+  }
+
+  function numeClient(contractId){
+    const c = contracte.find(x=>x.id===contractId); if(!c) return "-";
+    const cl = clienti.find(x=>x.id===c.client_id); return cl?.nume || "-";
+  }
+
+  zona.innerHTML = programari.map(p=>{
+    const anexa = anexe.find(a=>a.id===p.anexa_id);
+    if(!anexa) return "";
+    const existenta = gasesteExistenta(p.anexa_id);
+    const nepublicat = existenta?._pending ? ` <span style="font-size:10px;color:var(--galben);">(offline, se trimite automat)</span>` : "";
+    let statusHtml, actiuneHtml;
+    if(!existenta){
+      statusHtml = `<span class="badge pendinte">Neînceput</span>`;
+      actiuneHtml = `<button class="btn mic btn-am-ajuns" data-anexa="${p.anexa_id}" data-contract="${anexa.contract_id}">📍 Am ajuns</button>`;
+    } else if(existenta.status==="in_lucru"){
+      statusHtml = `<span class="badge in_lucru">Sosit ${existenta.ora_sosire?.slice(0,5)||""}</span>${nepublicat}`;
+      actiuneHtml = `<button class="btn mic btn-am-plecat" data-id="${existenta.id}" data-sosire="${existenta.ora_sosire||""}">🚗 Am plecat</button>`;
+    } else if(existenta.cod_observatie){
+      statusHtml = `<span class="badge problema">${LABEL_COD[existenta.cod_observatie]||existenta.cod_observatie}</span>${nepublicat}`;
+      actiuneHtml = "";
+    } else {
+      const dm = existenta.durata_minute||0, ds = existenta.durata_secunde||0;
+      statusHtml = `<span class="badge finalizat">✓ ${existenta.ora_sosire?.slice(0,5)||""} (${dm}′ ${ds}″)</span>${nepublicat}`;
+      actiuneHtml = "";
+    }
+    return `
+      <div class="card sarcina-card">
+        <div class="client">${esc(numeClient(anexa.contract_id))}</div>
+        <div class="adresa">📍 ${esc([anexa.locatie_localitate, anexa.locatie_adresa].filter(Boolean).join(", "))}</div>
+        <div class="rand-jos">${statusHtml}${actiuneHtml}</div>
+      </div>
+    `;
+  }).join("");
+
+  zona.querySelectorAll(".btn-am-ajuns").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      incarcare(true, "Se salvează sosirea...");
+      await salveazaCuCoadaOffline({
+        type: "insert", table: "sarcini",
+        payload: {
+          contract_id: btn.dataset.contract, anexa_id: btn.dataset.anexa, tip_actiune: "SERVISARE",
+          data: azi, ora_sosire: oraAcum(),
+          ruta_id: state.rutaZileiId, sofer_id: state.soferCurent.id, status: "in_lucru",
+        }
+      }, "Sosire înregistrată");
+      incarcare(false);
+      randRutaZilei();
+    });
+  });
+  zona.querySelectorAll(".btn-am-plecat").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      incarcare(true, "Se salvează plecarea...");
+      const [hh,mm,ss] = btn.dataset.sosire.split(":").map(Number);
+      const acum = new Date();
+      const secundeSosire = hh*3600 + mm*60 + (ss||0);
+      const secundeAcum = acum.getHours()*3600 + acum.getMinutes()*60 + acum.getSeconds();
+      const totalSecunde = Math.max(secundeAcum - secundeSosire, 0);
+      const durata_minute = Math.floor(totalSecunde/60);
+      const durata_secunde = totalSecunde % 60;
+      const campuriPlecare = { durata_minute, durata_secunde, sofer_id: state.soferCurent.id, status: "finalizat" };
+
+      if(String(btn.dataset.id).startsWith("local-")){
+        // sosirea insasi era inca in coada (offline) - completam direct acolo, fara sa mai facem un update separat
+        const coadaActuala = citesteCoada();
+        const item = coadaActuala.find(it=>it.idLocal===btn.dataset.id);
+        if(item){ item.payload = {...item.payload, ...campuriPlecare}; scrieCoada(coadaActuala); }
+        toast(`Plecare înregistrată — ${durata_minute} min ${durata_secunde} sec (offline, se trimite automat)`);
+        incarcare(false);
+      } else {
+        await salveazaCuCoadaOffline({ type:"update", table:"sarcini", matchId: btn.dataset.id, payload: campuriPlecare },
+          `Plecare înregistrată — ${durata_minute} min ${durata_secunde} sec pe locație`);
+        incarcare(false);
+      }
+      randRutaZilei();
+    });
+  });
+}
+
 async function randListaSarcini(){
   const el = document.getElementById("ecran-continut");
   el.innerHTML = `<div class="gol">Se încarcă comenzile...</div>`;
@@ -314,22 +555,59 @@ async function randListaSarcini(){
       const poateExecuta = s.status==="pendinte" || s.status==="in_lucru";
       const numeAlocat = numeSoferAlocat(s.sofer_id);
       return `
-        <div class="card sarcina-card ${poateExecuta?'clicabil':''}" data-id="${s.id}" style="${poateExecuta?'cursor:pointer;':'opacity:.7;'}">
-          <div class="client">${esc(numeClient(s.contract_id))}</div>
-          <div class="produs">${produs?esc(produs.model):"—"}</div>
-          <div class="adresa">📍 ${esc(locatieText(s)) || "adresă nespecificată"}</div>
-          ${numeAlocat ? `<div class="adresa">🧑‍✈️ Alocat: ${esc(numeAlocat)}</div>` : ""}
+        <div class="card sarcina-card" data-id="${s.id}">
+          <div class="${poateExecuta?'clicabil':''}" data-id="${s.id}" style="${poateExecuta?'cursor:pointer;':''}">
+            <div class="client">${esc(numeClient(s.contract_id))}</div>
+            <div class="produs">${produs?esc(produs.model):"—"}</div>
+            <div class="adresa">📍 ${esc(locatieText(s)) || "adresă nespecificată"}</div>
+            ${numeAlocat ? `<div class="adresa">🧑‍✈️ Alocat: ${esc(numeAlocat)}</div>` : ""}
+          </div>
           <div class="rand-jos">
             <span class="badge tip">${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span>
             <span class="badge ${s.status}">${LABEL_STATUS[s.status]||s.status}</span>
+            ${poateExecuta ? `<button class="btn secundar mic btn-problema-rapida" data-id="${s.id}" data-contract="${s.contract_id}" data-anexa="${s.anexa_id||''}" style="margin-left:auto;">⚠️ Problemă</button>` : ""}
           </div>
         </div>
       `;
     }).join("");
   });
   lista.innerHTML = html;
-  lista.querySelectorAll(".sarcina-card.clicabil").forEach(card=>{
-    card.addEventListener("click", ()=> deschideExecutie(card.dataset.id));
+  lista.querySelectorAll(".sarcina-card .clicabil").forEach(zona=>{
+    zona.addEventListener("click", ()=> deschideExecutie(zona.dataset.id));
+  });
+  lista.querySelectorAll(".btn-problema-rapida").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      deschidePopupProblemaRapida(btn.dataset.id);
+    });
+  });
+}
+
+function deschidePopupProblemaRapida(sarcinaId){
+  const optiuni = Object.entries(LABEL_COD).map(([cod,label])=>
+    `<button class="btn secundar mic btn-cod-rapid" data-cod="${cod}" style="width:100%;margin-bottom:6px;text-align:left;">${label}</button>`
+  ).join("");
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(23,61,44,.5);display:flex;align-items:flex-end;justify-content:center;z-index:150;";
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:480px;">
+      <div style="font-weight:800;font-size:14.5px;margin-bottom:10px;">De ce nu poți finaliza acum?</div>
+      ${optiuni}
+      <button class="btn secundar mic" id="btn-anuleaza-problema" style="width:100%;margin-top:4px;">Anulează</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", (e)=>{ if(e.target===overlay) document.body.removeChild(overlay); });
+  overlay.querySelector("#btn-anuleaza-problema").addEventListener("click", ()=> document.body.removeChild(overlay));
+  overlay.querySelectorAll(".btn-cod-rapid").forEach(b=>{
+    b.addEventListener("click", async ()=>{
+      document.body.removeChild(overlay);
+      await salveazaCuCoadaOffline({
+        type: "update", table: "sarcini", matchId: sarcinaId,
+        payload: { status: "problema", cod_observatie: b.dataset.cod, sofer_id: state.soferCurent.id, updated_at: new Date().toISOString() }
+      }, "Problemă înregistrată");
+      randListaSarcini();
+    });
   });
 }
 
@@ -705,14 +983,14 @@ async function genereazaSiFinalizeaza(){
       toast("Document descărcat — trimite-l manual din Fișiere/Galerie");
     }
 
-    // marcam finalizat in baza de date (doar text, fara fisier)
+    // marcam finalizat in baza de date (doar text, fara fisier) - cu siguranta offline
     incarcare(true, "Se salvează statusul...");
-    await q(supa.from("sarcini").update({
-      status: "finalizat", nr_pv: state.nrPv, serie_nota: state.serieIntrodusa || null, sofer_id: state.soferCurent.id, updated_at: new Date().toISOString()
-    }).eq("id", state.sarcinaActiva.id), "Nu am putut salva statusul");
+    await salveazaCuCoadaOffline({
+      type: "update", table: "sarcini", matchId: state.sarcinaActiva.id,
+      payload: { status: "finalizat", nr_pv: state.nrPv, serie_nota: state.serieIntrodusa || null, sofer_id: state.soferCurent.id, updated_at: new Date().toISOString() }
+    }, "Comandă finalizată ✓");
 
     incarcare(false);
-    toast("Comandă finalizată ✓");
     state.ecran = "lista";
     randApp();
 
@@ -726,6 +1004,13 @@ async function genereazaSiFinalizeaza(){
 /* ===================== PORNIRE ===================== */
 if(state.soferCurent) state.ecran = "lista";
 randApp();
+proceseazaCoadaOffline();
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("sw.js").catch(()=>{ /* nu blocam aplicatia daca esueaza */ });
+  });
+}
 </script>
 </body>
 </html>

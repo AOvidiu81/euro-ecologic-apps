@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dispecerat — Euro Ecologic</title>
+<meta name="theme-color" content="#173d2c">
+<link rel="manifest" href="manifest-dispecerat.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -197,6 +201,7 @@ tr.clicabil:hover td{background:var(--verde-pal);}
       <button data-tab="depozite">🏭 Depozite</button>
       <button data-tab="documente">📑 Documente</button>
       <button data-tab="raport">📅 Raport lunar</button>
+      <button data-tab="verificare-ruta">🧭 Verificare Rută</button>
       <button data-tab="resurse">🚚 Șoferi, Mașini &amp; Rute</button>
     </nav>
     <div class="sidebar-footer">SC Euro Ecologic SRL<br>Hunedoara</div>
@@ -222,8 +227,13 @@ const state = {
   tab: "sarcini",
   cache: { clienti:[], contracte:[], produse:[], soferi:[], masini:[], sarcini:[], facturi:[], depozite:[], anexe:[], documente:[] },
   sarciniData: new Date().toISOString().slice(0,10),
+  sarciniLuna: new Date().toISOString().slice(0,7), // YYYY-MM, pentru tab-ul Comenzi
   sarciniFiltru: "toate",
   raportLuna: new Date().toISOString().slice(0,7), // format YYYY-MM
+  verifData: new Date().toISOString().slice(0,10),
+  verifRutaId: "",
+  verifSubEcran: "zilnic",
+  comenziLuna: new Date().toISOString().slice(0,7), // format YYYY-MM, pt tab-ul Comenzi
   clientSelectat: null,
   contractSelectat: null,
 };
@@ -273,6 +283,7 @@ function renderTab(){
   else if(state.tab==="depozite") renderDepozite();
   else if(state.tab==="documente") renderDocumente();
   else if(state.tab==="raport") renderRaportLunar();
+  else if(state.tab==="verificare-ruta") renderVerificareRuta();
   else if(state.tab==="resurse") renderResurse();
 }
 
@@ -304,7 +315,11 @@ function genereazaTextComanda(s, contract, client, anexa, produs, depozitComerci
    TAB 1 — SARCINI ZILEI
    =================================================================== */
 async function incarcaSarciniData(){
-  const sarcini = await q(supa.from("sarcini").select("*").eq("data", state.sarciniData).order("created_at"), "Nu am putut încărca comenzile");
+  const [an, luna] = state.sarciniLuna.split("-").map(Number);
+  const zileInLuna = new Date(an, luna, 0).getDate();
+  const dataInceput = `${state.sarciniLuna}-01`;
+  const dataSfarsit = `${state.sarciniLuna}-${String(zileInLuna).padStart(2,"0")}`;
+  const sarcini = await q(supa.from("sarcini").select("*").gte("data", dataInceput).lte("data", dataSfarsit).order("data"), "Nu am putut încărca comenzile");
   const [contracte, produse, soferi, masini, clienti, anexe] = await Promise.all([
     q(supa.from("contracte").select("*")), q(supa.from("produse").select("*")),
     q(supa.from("soferi").select("*")), q(supa.from("masini").select("*")), q(supa.from("clienti").select("*")),
@@ -331,7 +346,6 @@ async function renderSarcini(){
   main.innerHTML = `<div class="gol">Se încarcă...</div>`;
   await incarcaSarciniData();
 
-  const soferiActivi = state.cache.soferi.filter(s=>s.activ !== false);
   let sarcini = state.cache.sarcini;
   if(state.sarciniFiltru !== "toate") sarcini = sarcini.filter(s=>s.status===state.sarciniFiltru);
 
@@ -346,10 +360,10 @@ async function renderSarcini(){
     <div class="top-bar">
       <div>
         <h1>Comenzi</h1>
-        <div class="sub">Planificare și urmărire pe șoferi</div>
+        <div class="sub">Toată luna, grupat pe zi și pe șofer</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
-        <input type="date" id="input-data" value="${state.sarciniData}" style="width:auto;">
+        <input type="month" id="input-luna" value="${state.sarciniLuna}" style="width:auto;">
         <button class="btn" id="btn-sarcina-noua">+ Comandă nouă</button>
       </div>
     </div>
@@ -370,50 +384,62 @@ async function renderSarcini(){
     <div id="lista-grupuri"></div>
   `;
 
-  document.getElementById("input-data").addEventListener("change", e=>{ state.sarciniData = e.target.value; renderSarcini(); });
+  document.getElementById("input-luna").addEventListener("change", e=>{ state.sarciniLuna = e.target.value; renderSarcini(); });
   document.getElementById("btn-sarcina-noua").addEventListener("click", deschideModalSarcinaNoua);
   main.querySelectorAll(".filtre button").forEach(b=>b.addEventListener("click", ()=>{ state.sarciniFiltru = b.dataset.f; renderSarcini(); }));
 
   const grupuri = document.getElementById("lista-grupuri");
   if(sarcini.length===0){
-    grupuri.innerHTML = `<div class="gol"><div class="emoji">🗓️</div>Nicio comandă pentru data selectată${state.sarciniFiltru!=="toate" ? " cu acest filtru" : ""}.</div>`;
+    grupuri.innerHTML = `<div class="gol"><div class="emoji">🗓️</div>Nicio comandă în această lună${state.sarciniFiltru!=="toate" ? " cu acest filtru" : ""}.</div>`;
     return;
   }
 
-  const grupePeSofer = {};
-  sarcini.forEach(s=>{
-    const key = s.sofer_id || "_nealocat";
-    (grupePeSofer[key] = grupePeSofer[key] || []).push(s);
-  });
+  // grupam pe zi, apoi pe sofer in interiorul zilei
+  const grupePeZi = {};
+  sarcini.forEach(s=>{ (grupePeZi[s.data] = grupePeZi[s.data] || []).push(s); });
 
+  const azi = new Date().toISOString().slice(0,10);
   let html = "";
-  Object.keys(grupePeSofer).forEach(soferId=>{
-    const sofer = state.cache.soferi.find(s=>s.id===soferId);
-    const numeSofer = sofer ? sofer.nume : "Nealocat";
-    const lista = grupePeSofer[soferId];
-    html += `
-      <div class="grup-sofer">
-        <div class="grup-sofer-header">
-          <div class="avatar">${initiale(numeSofer)}</div>
-          <h3>${esc(numeSofer)}</h3>
-          <span class="nr">${lista.length} comenzi</span>
+  Object.keys(grupePeZi).sort().forEach(zi=>{
+    const sarciniZi = grupePeZi[zi];
+    const grupePeSofer = {};
+    sarciniZi.forEach(s=>{
+      const key = s.sofer_id || "_nealocat";
+      (grupePeSofer[key] = grupePeSofer[key] || []).push(s);
+    });
+
+    html += `<div class="grup-zi-titlu" style="font-weight:800;font-size:14.5px;margin:22px 0 10px;color:var(--verde-inchis);border-bottom:2px solid var(--linie);padding-bottom:6px;">
+      ${zi===azi?"🔵 Azi — ":""}${fmtData(zi)} <span style="font-weight:600;color:var(--text-slab);font-size:12.5px;">(${sarciniZi.length} comenzi)</span>
+    </div>`;
+
+    Object.keys(grupePeSofer).forEach(soferId=>{
+      const sofer = state.cache.soferi.find(s=>s.id===soferId);
+      const numeSofer = sofer ? sofer.nume : "Nealocat";
+      const lista = grupePeSofer[soferId];
+      html += `
+        <div class="grup-sofer">
+          <div class="grup-sofer-header">
+            <div class="avatar">${initiale(numeSofer)}</div>
+            <h3>${esc(numeSofer)}</h3>
+            <span class="nr">${lista.length} comenzi</span>
+          </div>
+          ${lista.map(s=>{
+            const produs = state.cache.produse.find(p=>p.id===s.produs_id);
+            return `
+            <div class="sarcina-item" data-id="${s.id}">
+              <div class="info">
+                <div class="client">${esc(numeClientDinContract(s.contract_id))} ${produs ? "— "+esc(produs.model) : ""}</div>
+                <div class="detalii">${esc(locatieSarcina(s)) || "locație nespecificată"}</div>
+              </div>
+              <div class="dreapta">
+                <span class="badge tip-actiune">${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span>
+                <span class="badge ${s.status}">${LABEL_STATUS[s.status]||s.status}</span>
+              </div>
+            </div>`;
+          }).join("")}
         </div>
-        ${lista.map(s=>{
-          const produs = state.cache.produse.find(p=>p.id===s.produs_id);
-          return `
-          <div class="sarcina-item" data-id="${s.id}">
-            <div class="info">
-              <div class="client">${esc(numeClientDinContract(s.contract_id))} ${produs ? "— "+esc(produs.model) : ""}</div>
-              <div class="detalii">${esc(locatieSarcina(s)) || "locație nespecificată"}</div>
-            </div>
-            <div class="dreapta">
-              <span class="badge tip-actiune">${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span>
-              <span class="badge ${s.status}">${LABEL_STATUS[s.status]||s.status}</span>
-            </div>
-          </div>`;
-        }).join("")}
-      </div>
-    `;
+      `;
+    });
   });
   grupuri.innerHTML = html;
   grupuri.querySelectorAll(".sarcina-item").forEach(el=>{
@@ -1053,6 +1079,8 @@ async function deschideDetaliiAnexa(anexaId, contractId){
   const sarciniAnexa = await q(supa.from("sarcini").select("*").eq("anexa_id", anexaId).order("data",{ascending:false}), "Nu am putut încărca comenzile anexei");
   const produse = state.cache.produse.length ? state.cache.produse : await q(supa.from("produse").select("*"));
   state.cache.produse = produse;
+  await asiguraRuteIncarcate();
+  const programariAnexa = await q(supa.from("programari_servisare").select("*").eq("anexa_id", anexaId).eq("activ", true), "Nu am putut încărca zilele de servisare");
 
   // cantitate activa per produs implicat in aceasta anexa
   const produseImplicate = [...new Set(sarciniAnexa.filter(s=>s.produs_id).map(s=>s.produs_id))];
@@ -1065,6 +1093,29 @@ async function deschideDetaliiAnexa(anexaId, contractId){
     <div class="detalii-linie"><span>Adresă</span><span>${esc(a.locatie_adresa||"-")}</span></div>
     <div class="detalii-linie"><span>Contact</span><span>${esc(a.persoana_contact||"-")} ${a.telefon?("· "+esc(a.telefon)):""}</span></div>
     <div class="detalii-linie"><span>Frecvență servisare</span><span>${esc(a.frecventa_servisare||"-")}</span></div>
+
+    <h3 style="font-size:13.5px;margin:16px 0 8px;">Zile de servisare alocate (pentru Verificare Rută)</h3>
+    <div id="lista-programari-servisare">
+      ${programariAnexa.length ? programariAnexa.map(p=>{
+        const ruta = state.cache.rute.find(r=>r.id===p.ruta_id);
+        return `<div class="detalii-linie"><span>${ZILE_SAPTAMANA[p.zi_saptamana]} — ${esc(ruta?.nume||"(fără rută)")}</span><span><button class="btn pericol mic btn-sterge-progserv" data-id="${p.id}">Șterge</button></span></div>`;
+      }).join("") : `<div class="sub" style="color:var(--text-slab);font-size:12.5px;">Nicio zi alocată încă.</div>`}
+    </div>
+    <div class="rand-campuri" style="margin-top:10px;">
+      <div class="camp">
+        <label>Zi nouă</label>
+        <select id="sel-zi-noua">${Object.entries(ZILE_SAPTAMANA).map(([n,l])=>`<option value="${n}">${l}</option>`).join("")}</select>
+      </div>
+      <div class="camp">
+        <label>Rută</label>
+        <select id="sel-ruta-noua">
+          <option value="">— fără rută —</option>
+          ${state.cache.rute.map(r=>`<option value="${r.id}">${esc(r.nume)}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    <button class="btn secundar mic" id="btn-adauga-progserv" style="margin-bottom:16px;">+ Adaugă zi de servisare</button>
+
     <h3 style="font-size:13.5px;margin:16px 0 8px;">Produse active pe această locație</h3>
     ${produseImplicate.length ? produseImplicate.map(pid=>{
       const p = produse.find(x=>x.id===pid);
@@ -1085,6 +1136,20 @@ async function deschideDetaliiAnexa(anexaId, contractId){
     </div>
   `);
   document.getElementById("btn-edit-anexa").addEventListener("click", ()=>deschideModalAnexaEdit(a));
+  document.getElementById("btn-adauga-progserv").addEventListener("click", async ()=>{
+    const zi_saptamana = parseInt(document.getElementById("sel-zi-noua").value);
+    const ruta_id = document.getElementById("sel-ruta-noua").value || null;
+    await q(supa.from("programari_servisare").insert({anexa_id: anexaId, zi_saptamana, ruta_id, activ:true}), "Nu am putut salva ziua de servisare");
+    toast("Zi de servisare adăugată");
+    deschideDetaliiAnexa(anexaId, contractId);
+  });
+  document.querySelectorAll(".btn-sterge-progserv").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      await q(supa.from("programari_servisare").delete().eq("id", btn.dataset.id), "Nu am putut șterge");
+      toast("Zi de servisare ștearsă");
+      deschideDetaliiAnexa(anexaId, contractId);
+    });
+  });
 }
 
 function deschideModalClientNou(){
@@ -2107,8 +2172,220 @@ function exportaRaportExcel(sarciniLuna, contracte, anexe, clienti, produse, an,
   toast("Excel generat");
 }
 
+/* ===================================================================
+   TAB 9 — VERIFICARE RUTĂ (confirmare zilnică zi+ruta, ca la GPS)
+   =================================================================== */
+const ZILE_SAPTAMANA = {1:"Luni",2:"Marți",3:"Miercuri",4:"Joi",5:"Vineri",6:"Sâmbătă",7:"Duminică"};
+const LABEL_COD = {L:"Lipsă acces", O:"Omis", R:"Refuzat", A:"Amânat", V:"Vacanță/nelocuit", S:"Suspendat", M:"Mutat"};
+
+function ziSaptamanaDinData(dataStr){
+  const js = new Date(dataStr).getDay(); // 0=Duminica...6=Sambata
+  return js===0 ? 7 : js;
+}
+
+async function renderVerificareRuta(){
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="gol">Se încarcă...</div>`;
+  await asiguraRuteIncarcate();
+
+  main.innerHTML = `
+    <div class="top-bar">
+      <div><h1>Verificare Rută</h1><div class="sub">Confirmare zilnică — ca la verificarea GPS de dimineață</div></div>
+    </div>
+    <div class="filtre">
+      <button data-sub="zilnic" class="${state.verifSubEcran!=='raport'?'activ':''}">Verificare zilnică</button>
+      <button data-sub="raport" class="${state.verifSubEcran==='raport'?'activ':''}">Raport 4 săptămâni</button>
+    </div>
+    <div id="zona-verificare-ruta"></div>
+  `;
+  main.querySelectorAll(".filtre button").forEach(b=>b.addEventListener("click", ()=>{ state.verifSubEcran = b.dataset.sub; renderVerificareRuta(); }));
+
+  if(state.verifSubEcran==="raport") await randRaport4Saptamani();
+  else await randVerificareZilnica();
+}
+
+async function randVerificareZilnica(){
+  const [anexe, contracte, clienti, programari] = await Promise.all([
+    q(supa.from("anexe").select("*")), q(supa.from("contracte").select("*")), q(supa.from("clienti").select("*")),
+    q(supa.from("programari_servisare").select("*").eq("activ", true)),
+  ]);
+  state.cache = {...state.cache, anexe, contracte, clienti};
+
+  if(!state.verifRutaId && state.cache.rute.length) state.verifRutaId = state.cache.rute[0].id;
+  const ziNr = ziSaptamanaDinData(state.verifData);
+
+  const zona = document.getElementById("zona-verificare-ruta");
+  zona.innerHTML = `
+    <div class="rand-campuri" style="max-width:520px;margin-top:12px;">
+      <div class="camp">
+        <label>Data</label>
+        <input type="date" id="input-verif-data" value="${state.verifData}">
+        <div class="sub" style="font-size:11.5px;color:var(--text-slab);margin-top:4px;">${ZILE_SAPTAMANA[ziNr]}</div>
+      </div>
+      <div class="camp">
+        <label>Rută</label>
+        <select id="input-verif-ruta">
+          <option value="">— selectează ruta —</option>
+          ${state.cache.rute.map(r=>`<option value="${r.id}" ${state.verifRutaId===r.id?"selected":""}>${esc(r.nume)}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    <div id="lista-verificare-ruta" style="margin-top:16px;"></div>
+  `;
+  document.getElementById("input-verif-data").addEventListener("change", e=>{ state.verifData = e.target.value; renderVerificareRuta(); });
+  document.getElementById("input-verif-ruta").addEventListener("change", e=>{ state.verifRutaId = e.target.value; renderVerificareRuta(); });
+
+  const zonaListă = document.getElementById("lista-verificare-ruta");
+  if(!state.verifRutaId){
+    zonaListă.innerHTML = `<div class="gol"><div class="emoji">🗺️</div>Selectează o rută (le adaugi din tab-ul Șoferi, Mașini &amp; Rute).</div>`;
+    return;
+  }
+
+  const programariZiRuta = programari.filter(p=>p.zi_saptamana===ziNr && p.ruta_id===state.verifRutaId);
+  if(programariZiRuta.length===0){
+    zonaListă.innerHTML = `<div class="gol"><div class="emoji">🗺️</div>Nicio anexă alocată acestei zile+rute. Alocă zile de servisare din detaliile anexei (tab Clienți &amp; Contracte).</div>`;
+    return;
+  }
+
+  // verificam ce e deja confirmat azi pt aceste anexe (comanda SERVISARE cu aceeasi data)
+  const anexaIds = programariZiRuta.map(p=>p.anexa_id);
+  const sarciniExistente = await q(
+    supa.from("sarcini").select("*").eq("data", state.verifData).eq("tip_actiune","SERVISARE").in("anexa_id", anexaIds),
+    "Nu am putut verifica confirmările existente"
+  );
+
+  function numeClientPtContract(contractId){
+    const c = state.cache.contracte.find(x=>x.id===contractId); if(!c) return "-";
+    const cl = state.cache.clienti.find(x=>x.id===c.client_id); return cl?.nume || "-";
+  }
+
+  zonaListă.innerHTML = `
+    <div class="tabel-wrap card" style="padding:0;">
+      <table>
+        <thead><tr><th>Client</th><th>Locație</th><th>Frecvență</th><th>Ora sosire</th><th>Durată (min)</th><th>sau Cod</th><th></th></tr></thead>
+        <tbody id="tbody-verificare"></tbody>
+      </table>
+    </div>
+  `;
+  const tbody = document.getElementById("tbody-verificare");
+  tbody.innerHTML = programariZiRuta.map(p=>{
+    const anexa = state.cache.anexe.find(a=>a.id===p.anexa_id);
+    if(!anexa) return "";
+    const existenta = sarciniExistente.find(s=>s.anexa_id===p.anexa_id);
+    const confirmatNormal = existenta && !existenta.cod_observatie;
+    const confirmatCuCod = existenta && existenta.cod_observatie;
+    return `
+      <tr data-anexa="${p.anexa_id}" data-contract="${anexa.contract_id}">
+        <td>${esc(numeClientPtContract(anexa.contract_id))}</td>
+        <td>${esc([anexa.locatie_localitate,anexa.locatie_adresa].filter(Boolean).join(" · "))}</td>
+        <td>${esc(anexa.frecventa_servisare||"-")}</td>
+        <td><input type="time" class="input-ora" value="${existenta?.ora_sosire?.slice(0,5)||""}" style="width:110px;" ${existenta?"disabled":""}></td>
+        <td><input type="number" class="input-durata" value="${existenta?.durata_minute??""}" placeholder="min" style="width:80px;" ${existenta?"disabled":""}></td>
+        <td>
+          <select class="input-cod" style="width:150px;" ${existenta?"disabled":""}>
+            <option value="">— normal —</option>
+            ${Object.entries(LABEL_COD).map(([cod,label])=>`<option value="${cod}" ${existenta?.cod_observatie===cod?"selected":""}>${label}</option>`).join("")}
+          </select>
+        </td>
+        <td>${existenta ? (confirmatCuCod ? `<span class="badge problema">${LABEL_COD[existenta.cod_observatie]||existenta.cod_observatie}</span>` : `<span class="badge finalizat">✓ Confirmat</span>${existenta.gps_sosire_lat?` <a href="https://maps.google.com/?q=${existenta.gps_sosire_lat},${existenta.gps_sosire_lon}" target="_blank" style="font-size:11px;">📍 GPS</a>`:""}`) : `<button class="btn mic btn-confirma">Salvează</button>`}</td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll(".btn-confirma").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const tr = btn.closest("tr");
+      const ora = tr.querySelector(".input-ora").value;
+      const durata = tr.querySelector(".input-durata").value;
+      const cod = tr.querySelector(".input-cod").value;
+      if(!cod && !ora){ toast("Completează ora sosirii, sau alege un cod (Lipsă acces, Omis, etc.)", true); return; }
+      await q(supa.from("sarcini").insert({
+        contract_id: tr.dataset.contract, anexa_id: tr.dataset.anexa, tip_actiune: "SERVISARE",
+        data: state.verifData, ora_sosire: cod ? null : ora, durata_minute: cod ? null : (parseInt(durata)||null),
+        cod_observatie: cod || null,
+        ruta_id: state.verifRutaId, status: cod ? "problema" : "finalizat",
+      }), "Nu am putut salva confirmarea");
+      toast(cod ? "Salvat cu cod de observație" : "Confirmat");
+      renderVerificareRuta();
+    });
+  });
+}
+
+async function randRaport4Saptamani(){
+  const zona = document.getElementById("zona-verificare-ruta");
+  zona.innerHTML = `<div class="gol">Se încarcă raportul...</div>`;
+
+  const azi = new Date();
+  const dataStart = new Date(azi); dataStart.setDate(dataStart.getDate() - 27);
+  const dataStartStr = dataStart.toISOString().slice(0,10);
+  const dataSfarsitStr = azi.toISOString().slice(0,10);
+
+  const [programari, anexe, contracte, clienti, sarciniPerioada] = await Promise.all([
+    q(supa.from("programari_servisare").select("*").eq("activ", true)),
+    q(supa.from("anexe").select("*")), q(supa.from("contracte").select("*")), q(supa.from("clienti").select("*")),
+    q(supa.from("sarcini").select("*").eq("tip_actiune","SERVISARE").gte("data", dataStartStr).lte("data", dataSfarsitStr)),
+  ]);
+  state.cache = {...state.cache, anexe, contracte, clienti};
+
+  function numeClientPtContract(contractId){
+    const c = contracte.find(x=>x.id===contractId); if(!c) return "-";
+    const cl = clienti.find(x=>x.id===c.client_id); return cl?.nume || "-";
+  }
+
+  // pentru fiecare programare (anexa+zi+ruta), calculam ultimele 4 date posibile (in ultimele 28 zile) pt acea zi a saptamanii
+  const randuri = [];
+  const anexeDeja = new Set();
+  programari.forEach(p=>{
+    if(anexeDeja.has(p.anexa_id+"_"+p.zi_saptamana)) return;
+    anexeDeja.add(p.anexa_id+"_"+p.zi_saptamana);
+    const anexa = anexe.find(a=>a.id===p.anexa_id);
+    if(!anexa) return;
+    const ruta = state.cache.rute.find(r=>r.id===p.ruta_id);
+
+    // gasim toate datele din ultimele 28 zile care cad pe ziua p.zi_saptamana
+    const dateOcurente = [];
+    for(let i=0; i<28; i++){
+      const d = new Date(azi); d.setDate(d.getDate()-i);
+      const ziD = d.getDay()===0?7:d.getDay();
+      if(ziD===p.zi_saptamana) dateOcurente.unshift(d.toISOString().slice(0,10));
+    }
+    const ultimele4 = dateOcurente.slice(-4);
+
+    randuri.push({ anexa, ruta, zi: p.zi_saptamana, date: ultimele4 });
+  });
+
+  zona.innerHTML = `
+    <div class="sub" style="margin:12px 0;">Perioada: ${fmtData(dataStartStr)} → ${fmtData(dataSfarsitStr)} (ultimele 4 apariții ale zilei alocate fiecărui client)</div>
+    <div class="tabel-wrap card" style="padding:0;">
+      <table style="font-size:12px;">
+        <thead><tr><th>Client</th><th>Rută / Zi</th><th>V-4</th><th>V-3</th><th>V-2</th><th>V-1 (recent)</th></tr></thead>
+        <tbody>
+          ${randuri.map(r=>{
+            const numeClient = numeClientPtContract(r.anexa.contract_id);
+            const celule = r.date.map(d=>{
+              const s = sarciniPerioada.find(x=>x.anexa_id===r.anexa.id && x.data===d);
+              if(!s) return `<td style="text-align:center;color:var(--text-slab);">— neconfirmat</td>`;
+              if(s.cod_observatie) return `<td style="text-align:center;"><span class="badge problema">${LABEL_COD[s.cod_observatie]||s.cod_observatie}</span></td>`;
+              return `<td style="text-align:center;color:var(--verde-status);font-weight:700;">${s.ora_sosire?.slice(0,5)||"-"} ${s.durata_minute!=null?("("+s.durata_minute+"′"+(s.durata_secunde?(" "+s.durata_secunde+"″"):"")+")"):""}</td>`;
+            });
+            while(celule.length<4) celule.unshift(`<td style="text-align:center;color:var(--text-slab);">-</td>`);
+            return `<tr><td>${esc(numeClient)}</td><td>${esc(r.ruta?.nume||"-")} · ${ZILE_SAPTAMANA[r.zi]}</td>${celule.join("")}</tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+    <div class="sub" style="margin-top:10px;">Verde = confirmat normal (oră + durată în minute) · Roșu = cod de observație (Lipsă acces, Omis, etc.) · Gri "— neconfirmat" = nimeni nu a introdus nimic pentru acea zi programată.</div>
+  `;
+}
+
 /* ===================== PORNIRE ===================== */
 renderSarcini();
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
