@@ -53,6 +53,14 @@
     background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:9px;
     padding:9px 12px; font-size:0.9rem;
   }
+  .date-filter-wrap{position:relative; display:inline-block;}
+  .date-filter-wrap input[type="date"]{
+    position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:2; margin:0;
+  }
+  .date-filter-label{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:9px;
+    padding:9px 12px; font-size:0.9rem; white-space:nowrap; pointer-events:none;
+  }
 
   .summary-bar{
     display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:10px; margin-bottom:18px;
@@ -107,7 +115,10 @@
   <div id="errorBox"></div>
 
   <div class="filter-row">
-    <input type="date" id="dateFilter">
+    <div class="date-filter-wrap">
+      <input type="date" id="dateFilter">
+      <div class="date-filter-label" id="dateFilterLabel"></div>
+    </div>
     <select id="statusFilter">
       <option value="TOATE">Toate rutele</option>
       <option value="activa">Doar active</option>
@@ -126,12 +137,25 @@ const SUPABASE_KEY = 'sb_publishable_YbJkzF4SPNXICLOwVUMGOA_pCksKLGl';
 const sb = (typeof supabase !== 'undefined') ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 const dateFilter = document.getElementById('dateFilter');
+const dateFilterLabel = document.getElementById('dateFilterLabel');
+
+const DAY_ABBR_RO = ['Dum','Lun','Mar','Mie','Joi','Vin','Sâm'];
+const MONTH_ABBR_RO = ['Ian','Feb','Mar','Apr','Mai','Iun','Iul','Aug','Sep','Oct','Noi','Dec'];
+function updateDateFilterLabel(){
+  if(!dateFilter.value){ dateFilterLabel.textContent = ''; return; }
+  const d = new Date(dateFilter.value+'T00:00:00');
+  const day = DAY_ABBR_RO[d.getDay()];
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mmm = MONTH_ABBR_RO[d.getMonth()];
+  dateFilterLabel.textContent = `${day}, ${dd}-${mmm}-${d.getFullYear()}`;
+}
 const statusFilter = document.getElementById('statusFilter');
 const summaryBar = document.getElementById('summaryBar');
 const sessionList = document.getElementById('sessionList');
 const errorBox = document.getElementById('errorBox');
 
 dateFilter.value = new Date().toISOString().slice(0,10);
+updateDateFilterLabel();
 
 function pad2(n){ return String(n).padStart(2,'0'); }
 function fmtTime(iso){
@@ -233,7 +257,7 @@ sessionList.innerHTML = sessions.map(s=>{
   }).join('');
 }
 
-dateFilter.addEventListener('change', loadDashboard);
+dateFilter.addEventListener('change', ()=>{ updateDateFilterLabel(); loadDashboard(); });
 statusFilter.addEventListener('change', loadDashboard);
 
 loadDashboard();
