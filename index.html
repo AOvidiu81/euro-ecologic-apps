@@ -349,7 +349,15 @@ async function randRutaZilei(){
   el.innerHTML = `<div class="gol">Se încarcă...</div>`;
 
   const rute = await q(supa.from("rute").select("*").order("nume"), "Nu am putut încărca rutele");
-  if(!state.rutaZileiId && rute.length) state.rutaZileiId = rute[0].id;
+  if(!state.rutaZileiId && rute.length){
+    // sugeram automat traseul alocat azi acestui sofer, daca exista o alocare
+    try{
+      const ziAzi = ziSaptamanaAzi();
+      const alocariAzi = await q(supa.from("alocari_traseu").select("*").eq("zi_saptamana", ziAzi));
+      const alocareMea = alocariAzi.find(a=>a.sofer_id===state.soferCurent.id || a.sofer_id_2===state.soferCurent.id);
+      state.rutaZileiId = alocareMea?.ruta_id || rute[0].id;
+    }catch(e){ state.rutaZileiId = rute[0].id; }
+  }
 
   el.innerHTML = `
     <div class="camp">
