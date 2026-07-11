@@ -146,12 +146,12 @@
   .card.visit-done .client{color:var(--text-dim);}
 
   .card.geo-near{
-    border: 1.5px solid rgba(255,60,60,0.9);
+    border: 3px solid rgba(255,60,60,0.95);
     animation: geoPulse 2s ease-in-out infinite;
   }
   @keyframes geoPulse{
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255,60,60,0.45); border-color: rgba(255,60,60,0.95); }
-    50% { box-shadow: 0 0 0 3px rgba(255,60,60,0); border-color: rgba(255,60,60,0.35); }
+    0%, 100% { box-shadow: inset 0 0 22px 3px rgba(255,60,60,0.5), 0 0 0 0 rgba(255,60,60,0.4); border-color: rgba(255,60,60,1); }
+    50% { box-shadow: inset 0 0 8px 1px rgba(255,60,60,0.15), 0 0 0 2px rgba(255,60,60,0); border-color: rgba(255,60,60,0.4); }
   }
 
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
@@ -526,6 +526,10 @@
       </select>
     </div>
     <div class="start-field">
+      <label>Zona (ex. PETROSANI, MOTRU, TG JIU)</label>
+      <input type="text" id="dsZonaConfig" placeholder="Zona rutei">
+    </div>
+    <div class="start-field">
       <label>Ordonează după</label>
       <select id="sortModeSel">
         <option value="depot">🧭 Optimizat GPS (start/retur Depozit)</option>
@@ -549,6 +553,7 @@
   </header>
 
   <div class="header-summary" id="headerSummary" style="display:none;"></div>
+  <div class="header-summary" id="routeConfigSummary" style="display:none;"></div>
 
   <div class="filters">
     <input type="text" id="searchInput" class="full" placeholder="Caută client, localitate, sat...">
@@ -833,6 +838,8 @@ const pageConfig = document.getElementById('pageConfig');
 const sortModeSel = document.getElementById('sortModeSel');
 const btnGenerateRoute = document.getElementById('btnGenerateRoute');
 const headerSummary = document.getElementById('headerSummary');
+const routeConfigSummary = document.getElementById('routeConfigSummary');
+const dsZonaConfig = document.getElementById('dsZonaConfig');
 const pageStart = document.getElementById('pageStart');
 const resumeBox = document.getElementById('resumeBox');
 const resumeList = document.getElementById('resumeList');
@@ -1031,9 +1038,11 @@ async function resumeSession(session){
     else { routeMode = 'history'; historyWeekNum = parseInt(sortVal,10); }
     pageConfig.style.display = 'none';
     pageApp.style.display = 'block';
+    renderRouteConfigSummary();
     render();
     startGeoWatch();
   } else {
+    dsZonaConfig.value = dayStart.zona || '';
     pageConfig.style.display = 'block';
   }
 }
@@ -1581,6 +1590,19 @@ function renderDayStartSummary(){
   });
 }
 
+function renderRouteConfigSummary(){
+  const traseu = (masinaSel.value && masinaSel.value !== 'TOATE') ? masinaSel.value : 'Toate traseele';
+  const zona = dayStart.zona ? dayStart.zona : null;
+  const label = [traseu, zona ? `Zona ${zona}` : null].filter(Boolean).join(' · ');
+  routeConfigSummary.innerHTML = `<div>${escapeHtml(label)}</div><div class="edit-icon" id="editRouteConfig">✏️</div>`;
+  routeConfigSummary.style.display = 'flex';
+  document.getElementById('editRouteConfig').addEventListener('click', ()=>{
+    dsZonaConfig.value = dayStart.zona || '';
+    pageApp.style.display = 'none';
+    pageConfig.style.display = 'block';
+  });
+}
+
 btnStartDay.addEventListener('click', async ()=>{
   if(!selDriver1.value || !selBrand.value || !selPlate.value){
     alert('Alege cel puțin Șofer 1, Marca și Numărul mașinii înainte de a începe ruta.');
@@ -1616,8 +1638,10 @@ btnStartDay.addEventListener('click', async ()=>{
     else if(sortVal === ''){ routeMode = null; historyWeekNum = null; }
     else { routeMode = 'history'; historyWeekNum = parseInt(sortVal,10); }
     pageApp.style.display = 'block';
+    renderRouteConfigSummary();
     render();
   } else {
+    dsZonaConfig.value = dayStart.zona || '';
     pageConfig.style.display = 'block';
   }
 });
@@ -1885,6 +1909,7 @@ async function saveRouteConfig(){
       last_ziua: ziuaSel.value,
       last_masina: masinaSel.value,
       last_sort_mode: sortModeSel.value,
+      zona: dayStart.zona || null,
       updated_at: new Date().toISOString(),
     }).eq('id', currentSessionId);
   }catch(err){
@@ -1897,10 +1922,12 @@ btnGenerateRoute.addEventListener('click', ()=>{
   if(val === 'depot'){ routeMode = 'depot'; historyWeekNum = null; }
   else if(val === ''){ routeMode = null; historyWeekNum = null; }
   else { routeMode = 'history'; historyWeekNum = parseInt(val,10); }
+  dayStart.zona = dsZonaConfig.value.trim().toUpperCase();
   pageConfig.style.display = 'none';
   pageApp.style.display = 'block';
   headerSummary.style.display = 'flex';
   renderDayStartSummary();
+  renderRouteConfigSummary();
   render();
   saveRouteConfig();
   startGeoWatch();
@@ -1970,6 +1997,7 @@ function haversine(lat1, lon1, lat2, lon2){
 
 const GEOFENCE_RADIUS_KM = 0.15; // ~150m
 let nearClientKeys = new Set();
+let lastKnownPosition = null;
 let geoWatchId = null;
 
 function applyGeoHighlight(){
@@ -1979,17 +2007,40 @@ function applyGeoHighlight(){
   });
 }
 
+function prioritizeNear(rows){
+  if(nearClientKeys.size === 0) return rows;
+  const near = [];
+  const far = [];
+  rows.forEach(r=>{
+    if(nearClientKeys.has(String(r._id))) near.push(r);
+    else far.push(r);
+  });
+  if(lastKnownPosition && near.length > 1){
+    near.sort((a,b)=>{
+      const da = haversine(lastKnownPosition.lat, lastKnownPosition.lon, a.lat, a.lon);
+      const db = haversine(lastKnownPosition.lat, lastKnownPosition.lon, b.lat, b.lon);
+      return da - db;
+    });
+  }
+  return near.concat(far);
+}
+
 function updateGeoProximity(pos){
-  const lat = pos.coords.latitude, lon = pos.coords.longitude;
+  lastKnownPosition = {lat: pos.coords.latitude, lon: pos.coords.longitude};
   const near = new Set();
   (lastRouteRows||[]).forEach(r=>{
     if(r.lat && r.lon){
-      const d = haversine(lat, lon, r.lat, r.lon);
+      const d = haversine(lastKnownPosition.lat, lastKnownPosition.lon, r.lat, r.lon);
       if(d <= GEOFENCE_RADIUS_KM) near.add(String(r._id));
     }
   });
+  const changed = near.size !== nearClientKeys.size || [...near].some(k=>!nearClientKeys.has(k));
   nearClientKeys = near;
-  applyGeoHighlight();
+  if(changed || near.size > 0){
+    render(); // re-sorts near clients to the top; applyGeoHighlight() runs as part of render()
+  } else {
+    applyGeoHighlight();
+  }
 }
 
 function startGeoWatch(){
@@ -2147,7 +2198,7 @@ function isVisitDone(r){
 function partitionDone(arr){
   const notDone = arr.filter(r=>!isVisitDone(r));
   const done = arr.filter(r=>isVisitDone(r));
-  return notDone.concat(done);
+  return prioritizeNear(notDone).concat(done);
 }
 
 function render(){
@@ -2196,7 +2247,9 @@ function render(){
     withTime.sort((a,b)=> a.info.sortKey - b.info.sortKey);
     const notDoneT = withTime.filter(item=>!isVisitDone(item.r));
     const doneT = withTime.filter(item=>isVisitDone(item.r));
-    const reorderedT = notDoneT.concat(doneT);
+    const notDoneRRaw = prioritizeNear(notDoneT.map(item=>item.r));
+    const notDoneTSorted = notDoneRRaw.map(r => notDoneT.find(item=>item.r===r));
+    const reorderedT = notDoneTSorted.concat(doneT);
 
     const w = WEEKS.find(w=>w.num === historyWeekNum);
     const interval = w ? `${fmtDateRo(w.start)}–${fmtDateRo(w.end)}` : '';
@@ -2252,7 +2305,7 @@ function render(){
       ${mapsBtn}
     `;
 
-    const notDoneOrdered = ordered.filter(r=>!isVisitDone(r));
+    const notDoneOrdered = prioritizeNear(ordered.filter(r=>!isVisitDone(r)));
     const doneOrdered = ordered.filter(r=>isVisitDone(r));
     let cur = {lat: DEPOT.lat, lon: DEPOT.lon};
     notDoneOrdered.forEach(r=>{
@@ -2317,6 +2370,7 @@ render();
 // If this file was saved mid-route (checkpoint), resume directly on the app screen
 if(dayStart && (dayStart.driver1 || dayStart.plate)){
   renderDayStartSummary();
+  renderRouteConfigSummary();
   headerSummary.style.display = 'flex';
   pageStart.style.display = 'none';
   pageApp.style.display = 'block';
