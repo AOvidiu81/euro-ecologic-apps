@@ -145,6 +145,15 @@
   .card.visit-done::before{background:var(--text-dim);}
   .card.visit-done .client{color:var(--text-dim);}
 
+  .card.geo-near{
+    border: 1.5px solid rgba(255,60,60,0.9);
+    animation: geoPulse 2s ease-in-out infinite;
+  }
+  @keyframes geoPulse{
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,60,60,0.45); border-color: rgba(255,60,60,0.95); }
+    50% { box-shadow: 0 0 0 3px rgba(255,60,60,0); border-color: rgba(255,60,60,0.35); }
+  }
+
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
   .client{font-weight:700; font-size:1.02rem; line-height:1.25;}
   .badges{display:flex; gap:6px; flex-shrink:0;}
@@ -579,9 +588,9 @@
 
     <div class="wizard-btn" id="btnSaveFinish" style="margin-top:10px; background:var(--activ); color:#06140d;">💾 Salvează</div>
     <div id="savedConfirm" class="route-config-note" style="display:none; text-align:center; color:var(--activ);">✅ Salvat cu succes</div>
-    <div class="tag-btn" id="btnGeneratePdf2" style="margin-top:10px; display:none;">🧾 Generează raport PDF</div>
+    <div class="wizard-btn" id="btnGeneratePdf2" style="margin-top:10px; display:none; background:var(--accent); color:#1a0f04;">🧾 Generează raport PDF</div>
     <div class="wizard-btn" id="btnGoHome" style="margin-top:10px; display:none; background:var(--panel-2); color:var(--text); border:1px solid var(--border);">🏠 Acasă</div>
-    <div class="finish-back" id="btnBackToRoute">← Înapoi la rută</div>
+    <div class="wizard-btn" id="btnBackToRoute" style="margin-top:10px; background:var(--panel-2); color:var(--text); border:1px solid var(--border);">← Înapoi la rută</div>
   </div>
 </div>
 
@@ -1014,6 +1023,7 @@ async function resumeSession(session){
     pageConfig.style.display = 'none';
     pageApp.style.display = 'block';
     render();
+    startGeoWatch();
   } else {
     pageConfig.style.display = 'block';
   }
@@ -1866,6 +1876,7 @@ btnGenerateRoute.addEventListener('click', ()=>{
   renderDayStartSummary();
   render();
   saveRouteConfig();
+  startGeoWatch();
 });
 
 function fmtDateRo(iso){
@@ -1928,6 +1939,39 @@ function haversine(lat1, lon1, lat2, lon2){
   const dLon = (lon2-lon1) * Math.PI/180;
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const GEOFENCE_RADIUS_KM = 0.15; // ~150m
+let nearClientKeys = new Set();
+let geoWatchId = null;
+
+function applyGeoHighlight(){
+  document.querySelectorAll('.card[data-client-key]').forEach(el=>{
+    const key = el.getAttribute('data-client-key');
+    el.classList.toggle('geo-near', nearClientKeys.has(key));
+  });
+}
+
+function updateGeoProximity(pos){
+  const lat = pos.coords.latitude, lon = pos.coords.longitude;
+  const near = new Set();
+  (lastRouteRows||[]).forEach(r=>{
+    if(r.lat && r.lon){
+      const d = haversine(lat, lon, r.lat, r.lon);
+      if(d <= GEOFENCE_RADIUS_KM) near.add(String(r._id));
+    }
+  });
+  nearClientKeys = near;
+  applyGeoHighlight();
+}
+
+function startGeoWatch(){
+  if(!navigator.geolocation || geoWatchId !== null) return;
+  geoWatchId = navigator.geolocation.watchPosition(
+    updateGeoProximity,
+    ()=>{ /* ignore errors (permission denied, no signal, etc.) — feature just stays inactive */ },
+    {enableHighAccuracy:true, maximumAge:15000, timeout:20000}
+  );
 }
 
 function nearestNeighborOrder(rows, start){
@@ -2040,7 +2084,7 @@ function cardHtml(r, orderNum, historyInfo){
       <a class="nav-top-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
     </div>`;
   return `
-  <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''}">
+  <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''}" data-client-key="${escapeHtml(String(r._id))}">
     ${orderNum ? `<div class="card-top-with-order"><div class="order-badge">${orderNum}</div>${top}</div>` : top}
     <div class="loc"><b>${escapeHtml(r.localitate)}</b>${r.jud ? ' · '+r.jud:''}${r.locatie ? ' — '+escapeHtml(r.locatie):''}</div>
     <div class="meta-row">${qtyLabel(r)}</div>
@@ -2067,6 +2111,16 @@ function depotCardHtml(sub){
 function finishBtnHtml(rows){
   if(!rows || rows.length === 0) return '';
   return `<div class="finish-route-btn" id="btnFinishRoute">🏁 Finalizează ruta</div>`;
+}
+
+function isVisitDone(r){
+  const v = visitLog[visitKey(r)];
+  return !!(v && (v.leave || v.obs));
+}
+function partitionDone(arr){
+  const notDone = arr.filter(r=>!isVisitDone(r));
+  const done = arr.filter(r=>isVisitDone(r));
+  return notDone.concat(done);
 }
 
 function render(){
@@ -2113,6 +2167,9 @@ function render(){
       else withoutTime.push({r, info});
     });
     withTime.sort((a,b)=> a.info.sortKey - b.info.sortKey);
+    const notDoneT = withTime.filter(item=>!isVisitDone(item.r));
+    const doneT = withTime.filter(item=>isVisitDone(item.r));
+    const reorderedT = notDoneT.concat(doneT);
 
     const w = WEEKS.find(w=>w.num === historyWeekNum);
     const interval = w ? `${fmtDateRo(w.start)}–${fmtDateRo(w.end)}` : '';
@@ -2124,7 +2181,7 @@ function render(){
     `;
 
     let html = '';
-    withTime.forEach((item,i)=>{
+    reorderedT.forEach((item,i)=>{
       html += cardHtml(item.r, i+1, item.info);
     });
     if(withoutTime.length){
@@ -2135,6 +2192,7 @@ function render(){
     }
     html += finishBtnHtml(rows);
     listEl.innerHTML = html;
+    applyGeoHighlight();
     return;
   }
 
@@ -2167,24 +2225,40 @@ function render(){
       ${mapsBtn}
     `;
 
+    const notDoneOrdered = ordered.filter(r=>!isVisitDone(r));
+    const doneOrdered = ordered.filter(r=>isVisitDone(r));
+    let cur = {lat: DEPOT.lat, lon: DEPOT.lon};
+    notDoneOrdered.forEach(r=>{
+      r._legDist = haversine(cur.lat, cur.lon, r.lat, r.lon);
+      cur = {lat:r.lat, lon:r.lon};
+    });
+    const finalReturnLeg = notDoneOrdered.length
+      ? haversine(cur.lat, cur.lon, DEPOT.lat, DEPOT.lon)
+      : returnLeg;
+
     let html = '';
-    if(routeMode === 'depot'){
-      html += depotCardHtml('Start rută');
-    }
-    ordered.forEach((r,i)=>{
+    html += depotCardHtml('Start rută');
+    notDoneOrdered.forEach((r,i)=>{
       html += `<div class="leg-dist">↓ <span>${r._legDist.toFixed(1)} km</span></div>`;
       html += cardHtml(r, i+1);
     });
     if(ordered.length){
-      html += `<div class="leg-dist">↓ <span>${returnLeg.toFixed(1)} km</span></div>`;
+      html += `<div class="leg-dist">↓ <span>${finalReturnLeg.toFixed(1)} km</span></div>`;
     }
     html += depotCardHtml('Retur la depozit');
+    if(doneOrdered.length){
+      html += `<div class="group-title">✅ Deja vizitați (${doneOrdered.length})</div>`;
+      doneOrdered.forEach((r,i)=>{
+        html += cardHtml(r, notDoneOrdered.length+i+1);
+      });
+    }
     if(noCoords.length){
       html += `<div class="group-title">Fără coordonate GPS (nu pot fi ordonate)</div>`;
       html += noCoords.map(r=>cardHtml(r)).join('');
     }
     html += finishBtnHtml(rows);
     listEl.innerHTML = html;
+    applyGeoHighlight();
     return;
   }
 
@@ -2192,19 +2266,23 @@ function render(){
 
   if(ziua === 'TOATE'){
     let html = '';
-    let lastDay = null;
-    for(const r of rows){
-      if(r.ziua !== lastDay){
-        html += `<div class="group-title">${r.ziua || 'Fără zi'}</div>`;
-        lastDay = r.ziua;
-      }
-      html += cardHtml(r);
-    }
+    const dayGroups = {};
+    const dayKeysInOrder = [];
+    rows.forEach(r=>{
+      const key = r.ziua || '';
+      if(!dayGroups[key]){ dayGroups[key] = []; dayKeysInOrder.push(key); }
+      dayGroups[key].push(r);
+    });
+    dayKeysInOrder.forEach(key=>{
+      html += `<div class="group-title">${key || 'Fără zi'}</div>`;
+      partitionDone(dayGroups[key]).forEach(r=>{ html += cardHtml(r); });
+    });
     html += finishBtnHtml(rows);
     listEl.innerHTML = html;
   } else {
-    listEl.innerHTML = rows.map(r=>cardHtml(r)).join('') + finishBtnHtml(rows);
+    listEl.innerHTML = partitionDone(rows).map(r=>cardHtml(r)).join('') + finishBtnHtml(rows);
   }
+  applyGeoHighlight();
 }
 
 render();
@@ -2216,6 +2294,7 @@ if(dayStart && (dayStart.driver1 || dayStart.plate)){
   pageStart.style.display = 'none';
   pageApp.style.display = 'block';
   render();
+  startGeoWatch();
   findOrCreateSession().then(()=> render());
 }
 </script>
