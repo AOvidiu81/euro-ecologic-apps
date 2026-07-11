@@ -131,9 +131,11 @@
   .card{
     background:var(--panel); border:1px solid var(--border); border-radius:14px;
     padding:14px; position:relative; overflow:hidden;
+    transition: opacity 0.6s ease, background 0.6s ease, border-color 0.6s ease;
   }
   .card::before{
     content:''; position:absolute; left:0; top:0; bottom:0; width:4px;
+    transition: background 0.6s ease;
   }
   .card.activ::before{background:var(--activ);}
   .card.inactiv::before{background:var(--inactiv);}
@@ -155,7 +157,7 @@
   }
 
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
-  .client{font-weight:700; font-size:1.02rem; line-height:1.25;}
+  .client{font-weight:700; font-size:1.02rem; line-height:1.25; transition: color 0.6s ease;}
   .badges{display:flex; gap:6px; flex-shrink:0;}
   .badge{
     font-size:0.68rem; font-weight:700; padding:3px 8px; border-radius:6px; white-space:nowrap;
@@ -1166,6 +1168,54 @@ function fmtCode(v){
   if(v.arrive) return fmtHHMM(v.arrive);
   return '';
 }
+function animateReorder(renderFn){
+  const oldRects = new Map();
+  document.querySelectorAll('.card[data-client-key]').forEach(el=>{
+    oldRects.set(el.getAttribute('data-client-key'), el.getBoundingClientRect());
+  });
+
+  renderFn();
+
+  document.querySelectorAll('.card[data-client-key]').forEach(el=>{
+    const key = el.getAttribute('data-client-key');
+    const oldRect = oldRects.get(key);
+    if(!oldRect) return; // newly appeared card, nothing to animate from
+    const newRect = el.getBoundingClientRect();
+    const deltaY = oldRect.top - newRect.top;
+    const deltaX = oldRect.left - newRect.left;
+    if(Math.abs(deltaY) < 1 && Math.abs(deltaX) < 1) return; // didn't actually move
+
+    el.style.transition = 'none';
+    el.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+    el.style.zIndex = '5';
+    el.getBoundingClientRect(); // force reflow so the browser registers the start position
+    requestAnimationFrame(()=>{
+      el.style.transition = 'transform 0.55s cubic-bezier(0.4,0,0.2,1)';
+      el.style.transform = '';
+      el.addEventListener('transitionend', function handler(){
+        el.style.transition = '';
+        el.style.zIndex = '';
+        el.removeEventListener('transitionend', handler);
+      });
+    });
+  });
+}
+
+function finalizeCardVisually(key, delayMs){
+  const cardEl = [...document.querySelectorAll('.card[data-client-key]')]
+    .find(el => el.getAttribute('data-client-key') === key);
+  const r = dataById[key];
+  if(cardEl && r){
+    const visitRowEl = cardEl.querySelector('.visit-row');
+    if(visitRowEl) visitRowEl.outerHTML = visitRowHtml(r);
+    cardEl.classList.remove('visit-progress');
+    cardEl.classList.add('visit-done');
+    setTimeout(()=> animateReorder(render), delayMs);
+  } else {
+    render();
+  }
+}
+
 listEl.addEventListener('click', (e)=>{
   const arriveBtn = e.target.closest('.visit-btn.arrive');
   const leaveBtn = e.target.closest('.visit-btn.leave');
@@ -1196,7 +1246,7 @@ listEl.addEventListener('click', (e)=>{
     if(visitLog[key]){
       visitLog[key].leave = new Date();
       syncVisit(key, r, visitLog[key]);
-      render();
+      finalizeCardVisually(key, 700);
     }
   } else if(obsBtn){
     const key = obsBtn.dataset.key;
@@ -1217,7 +1267,7 @@ listEl.addEventListener('click', (e)=>{
     }
     delete visitLog[key]._obsOpen;
     syncVisit(key, r, visitLog[key]);
-    render();
+    finalizeCardVisually(key, 700);
   } else if(obsCancel){
     const key = obsCancel.dataset.key;
     if(visitLog[key]) delete visitLog[key]._obsOpen;
@@ -2037,7 +2087,7 @@ function updateGeoProximity(pos){
   const changed = near.size !== nearClientKeys.size || [...near].some(k=>!nearClientKeys.has(k));
   nearClientKeys = near;
   if(changed || near.size > 0){
-    render(); // re-sorts near clients to the top; applyGeoHighlight() runs as part of render()
+    animateReorder(render); // re-sorts near clients to the top, animated; applyGeoHighlight() runs as part of render()
   } else {
     applyGeoHighlight();
   }
