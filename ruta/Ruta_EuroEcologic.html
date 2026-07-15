@@ -2297,9 +2297,22 @@ function render(){
     withTime.sort((a,b)=> a.info.sortKey - b.info.sortKey);
     const notDoneT = withTime.filter(item=>!isVisitDone(item.r));
     const doneT = withTime.filter(item=>isVisitDone(item.r));
-    const notDoneRRaw = prioritizeNear(notDoneT.map(item=>item.r));
-    const notDoneTSorted = notDoneRRaw.map(r => notDoneT.find(item=>item.r===r));
-    const reorderedT = notDoneTSorted.concat(doneT);
+    const notDoneWithoutTime = withoutTime.filter(item=>!isVisitDone(item.r));
+    const doneWithoutTime = withoutTime.filter(item=>isVisitDone(item.r));
+
+    // Geofence priority must catch near clients regardless of whether they have
+    // a recorded time for this historical week — pull them ALL to the very top together.
+    const isNear = item => item.r.lat && item.r.lon && nearClientKeys.has(String(item.r._id));
+    const nearItems = notDoneT.filter(isNear).concat(notDoneWithoutTime.filter(isNear));
+    if(lastKnownPosition && nearItems.length > 1){
+      nearItems.sort((a,b)=>{
+        const da = haversine(lastKnownPosition.lat, lastKnownPosition.lon, a.r.lat, a.r.lon);
+        const db = haversine(lastKnownPosition.lat, lastKnownPosition.lon, b.r.lat, b.r.lon);
+        return da - db;
+      });
+    }
+    const notDoneTRemaining = notDoneT.filter(item=>!isNear(item));
+    const withoutTimeRemaining = notDoneWithoutTime.filter(item=>!isNear(item));
 
     const w = WEEKS.find(w=>w.num === historyWeekNum);
     const interval = w ? `${fmtDateRo(w.start)}–${fmtDateRo(w.end)}` : '';
@@ -2311,14 +2324,14 @@ function render(){
     `;
 
     let html = '';
-    reorderedT.forEach((item,i)=>{
-      html += cardHtml(item.r, i+1, item.info);
-    });
-    if(withoutTime.length){
+    let orderNum = 1;
+    nearItems.forEach(item=>{ html += cardHtml(item.r, orderNum++, item.info); });
+    notDoneTRemaining.forEach(item=>{ html += cardHtml(item.r, orderNum++, item.info); });
+    doneT.forEach(item=>{ html += cardHtml(item.r, orderNum++, item.info); });
+    if(withoutTimeRemaining.length || doneWithoutTime.length){
       html += `<div class="group-title">Fără vizită înregistrată în W${historyWeekNum}</div>`;
-      withoutTime.forEach(item=>{
-        html += cardHtml(item.r, null, item.info);
-      });
+      withoutTimeRemaining.forEach(item=>{ html += cardHtml(item.r, null, item.info); });
+      doneWithoutTime.forEach(item=>{ html += cardHtml(item.r, null, item.info); });
     }
     html += finishBtnHtml(rows);
     listEl.innerHTML = html;
