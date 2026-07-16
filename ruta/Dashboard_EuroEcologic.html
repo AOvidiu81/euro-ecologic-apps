@@ -97,6 +97,9 @@
 
   .session-km{font-size:0.78rem; color:var(--text-dim); margin-top:10px;}
   .session-time{font-size:0.72rem; color:var(--text-dim); margin-top:6px;}
+  .session-locations{display:flex; gap:14px; margin-top:8px;}
+  .loc-link{font-size:0.75rem; color:var(--accent); text-decoration:none; font-weight:600;}
+  .loc-link:hover{text-decoration:underline;}
 
   .empty{text-align:center; color:var(--text-dim); padding:50px 10px;}
   .error-box{
@@ -247,6 +250,10 @@ sessionList.innerHTML = sessions.map(s=>{
     if(s.zona) routeInfoParts.push(`📍 ${s.zona}`);
     if(ziuaLabel) routeInfoParts.push(`${ziuaLabel} · ${sortModeLabelDash(s.last_sort_mode)}`);
     const routeInfoLine = routeInfoParts.join(' &nbsp;·&nbsp; ');
+    const startLocLink = (s.start_lat!=null && s.start_lon!=null)
+      ? `<a href="https://www.google.com/maps?q=${s.start_lat},${s.start_lon}" target="_blank" rel="noopener" class="loc-link">📍 Locație pornire</a>` : '';
+    const endLocLink = (s.end_lat!=null && s.end_lon!=null)
+      ? `<a href="https://www.google.com/maps?q=${s.end_lat},${s.end_lon}" target="_blank" rel="noopener" class="loc-link">📍 Locație finalizare</a>` : '';
     return `
     <div class="session-card ${s.status}">
       <div class="session-top">
@@ -267,6 +274,7 @@ sessionList.innerHTML = sessions.map(s=>{
       ${kmDriven!=null ? `<div class="session-km">Km parcurși: ${kmDriven} km</div>` : ''}
       <div class="session-time">Pornit la ${fmtTime(s.created_at)}${s.updated_at ? ' · ultima actualizare ' + fmtTime(s.updated_at) : ''}</div>
       ${duration ? `<div class="session-time">Timp efectuat: ${duration}</div>` : ''}
+      ${(startLocLink || endLocLink) ? `<div class="session-locations">${startLocLink}${endLocLink}</div>` : ''}
     </div>`;
   }).join('');
 }

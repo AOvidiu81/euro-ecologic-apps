@@ -984,6 +984,17 @@ async function processQueue(){
 window.addEventListener('online', processQueue);
 setInterval(processQueue, 15000);
 
+function getCurrentPositionAsync(){
+  return new Promise((resolve)=>{
+    if(!navigator.geolocation){ resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+      () => resolve(null),
+      {enableHighAccuracy:true, timeout:8000, maximumAge:20000}
+    );
+  });
+}
+
 async function findOrCreateSession(){
   if(!sb) return null;
   const todayStr = new Date().toISOString().slice(0,10);
@@ -1024,6 +1035,7 @@ async function findOrCreateSession(){
       return s;
     }
 
+    const startPos = await getCurrentPositionAsync();
     const { data: created, error: createErr } = await sb
       .from('route_sessions')
       .insert({
@@ -1035,6 +1047,8 @@ async function findOrCreateSession(){
         km_start: dayStart.kmStart,
         zona: dayStart.zona || null,
         status: 'activa',
+        start_lat: startPos ? startPos.lat : null,
+        start_lon: startPos ? startPos.lon : null,
       })
       .select()
       .single();
@@ -1186,9 +1200,13 @@ async function deleteVisitSync(clientId){
 
 async function finalizeSessionSync(kmEnd){
   if(!sb || !currentSessionId) return;
+  const endPos = await getCurrentPositionAsync();
   const doFinalize = async ()=>{
     const { error } = await sb.from('route_sessions')
-      .update({ km_end: kmEnd, status: 'finalizata', updated_at: new Date().toISOString() })
+      .update({
+        km_end: kmEnd, status: 'finalizata', updated_at: new Date().toISOString(),
+        end_lat: endPos ? endPos.lat : null, end_lon: endPos ? endPos.lon : null,
+      })
       .eq('id', currentSessionId);
     if(error) throw error;
   };
