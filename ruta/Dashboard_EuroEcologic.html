@@ -220,6 +220,16 @@ async function loadDashboard(){
   return '✖ Ordine normală';
 }
 
+function fmtDuration(startIso, endIso){
+  if(!startIso || !endIso) return null;
+  const ms = new Date(endIso) - new Date(startIso);
+  if(!isFinite(ms) || ms < 0) return null;
+  const totalMin = Math.round(ms/60000);
+  const h = Math.floor(totalMin/60);
+  const m = totalMin%60;
+  return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
 sessionList.innerHTML = sessions.map(s=>{
     const visits = visitsBySession[s.id] || [];
     const normal = visits.filter(v=>!v.obs && v.arrive_time).length;
@@ -227,9 +237,11 @@ sessionList.innerHTML = sessions.map(s=>{
     const omis = visits.filter(v=>v.obs==='O').length;
     const drivers = [s.driver1, s.driver2].filter(Boolean).join(' & ') || 'Fără șofer';
     const vehicle = [s.vehicle_brand, s.vehicle_plate].filter(Boolean).join(' - ') || '-';
+    const kmDriven = (s.km_start!=null && s.km_end!=null) ? (s.km_end - s.km_start) : null;
     const kmLine = (s.km_start!=null || s.km_end!=null)
-      ? `Km: ${s.km_start ?? '-'} → ${s.km_end ?? '-'}` + (s.km_start!=null && s.km_end!=null ? ` (${s.km_end-s.km_start} km)` : '')
+      ? `Km: ${s.km_start ?? '-'} → ${s.km_end ?? '-'}` + (kmDriven!=null ? ` (${kmDriven} km)` : '')
       : '';
+    const duration = fmtDuration(s.created_at, s.updated_at);
     const ziuaLabel = s.last_ziua ? (s.last_ziua === 'TOATE' ? 'Toate zilele' : s.last_ziua) : null;
     const routeInfoParts = [];
     if(s.zona) routeInfoParts.push(`📍 ${s.zona}`);
@@ -252,7 +264,9 @@ sessionList.innerHTML = sessions.map(s=>{
         <div class="stat"><b>${visits.length}</b><span>Total</span></div>
       </div>
       ${kmLine ? `<div class="session-km">${kmLine}</div>` : ''}
+      ${kmDriven!=null ? `<div class="session-km">Km parcurși: ${kmDriven} km</div>` : ''}
       <div class="session-time">Pornit la ${fmtTime(s.created_at)}${s.updated_at ? ' · ultima actualizare ' + fmtTime(s.updated_at) : ''}</div>
+      ${duration ? `<div class="session-time">Timp efectuat: ${duration}</div>` : ''}
     </div>`;
   }).join('');
 }

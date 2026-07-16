@@ -45,6 +45,28 @@
   }
   .wrap{max-width:900px;margin:0 auto;padding:14px 14px 60px;}
 
+  #connBanner{
+    position:sticky; top:0; z-index:100; text-align:center;
+    padding:10px 14px; font-weight:700; font-size:0.85rem;
+    border-bottom:3px solid;
+  }
+  #connBanner.offline{
+    background:#fff3b0; color:#7a1f1f; border-color:#e63333;
+    animation: bannerPulseRed 1s ease-in-out infinite;
+  }
+  #connBanner.online{
+    background:#fffde7; color:#14532d; border-color:#2ecc71;
+    animation: bannerPulseGreen 1s ease-in-out infinite;
+  }
+  @keyframes bannerPulseRed{
+    0%, 100% { box-shadow: inset 0 0 0 0 rgba(230,51,51,0.35); }
+    50% { box-shadow: inset 0 0 18px 2px rgba(230,51,51,0.35); }
+  }
+  @keyframes bannerPulseGreen{
+    0%, 100% { box-shadow: inset 0 0 0 0 rgba(46,204,113,0.35); }
+    50% { box-shadow: inset 0 0 18px 2px rgba(46,204,113,0.35); }
+  }
+
   header{
     display:flex; align-items:center; justify-content:space-between;
     padding:6px 2px 16px; border-bottom:1px solid var(--border); margin-bottom:14px;
@@ -409,6 +431,7 @@
 </style>
 </head>
 <body>
+<div id="connBanner" style="display:none;"></div>
 <div class="wrap" id="pageStart">
   <header>
     <h1>Ruta <span>EuroEcologic</span></h1>
@@ -892,20 +915,48 @@ depotNavCard.href = `https://www.google.com/maps/dir/?api=1&destination=${DEPOT.
 let syncQueue = []; // {key, desc, fn}
 let queueProcessing = false;
 
+const connBanner = document.getElementById('connBanner');
+let onlineBannerTimeout = null;
+let bannerIsOffline = false;
+
+function showOfflineBanner(){
+  clearTimeout(onlineBannerTimeout);
+  connBanner.textContent = '⚠️ Lipsă Internet, Date salvate local';
+  connBanner.className = 'offline';
+  connBanner.style.display = 'block';
+  bannerIsOffline = true;
+}
+function showOnlineBanner(){
+  connBanner.textContent = '✅ Online, Datele au fost salvate';
+  connBanner.className = 'online';
+  connBanner.style.display = 'block';
+  bannerIsOffline = false;
+  clearTimeout(onlineBannerTimeout);
+  onlineBannerTimeout = setTimeout(()=>{ connBanner.style.display = 'none'; }, 5000);
+}
+
+window.addEventListener('offline', showOfflineBanner);
+window.addEventListener('online', ()=>{ if(bannerIsOffline) showOnlineBanner(); });
+if(!navigator.onLine) showOfflineBanner();
+
 function setSyncStatus(state){
   // state: 'ok' | 'syncing' | 'error' | 'queued' | 'off'
-  if(!sb){ syncStatusEl.textContent = '📵'; syncStatusEl.title = 'Fără conexiune la baza de date'; syncQueueBadge.style.display = 'none'; return; }
+  if(!sb){ syncStatusEl.textContent = '📵'; syncStatusEl.title = 'Fără conexiune la baza de date'; syncQueueBadge.style.display = 'none'; showOfflineBanner(); return; }
   if(syncQueue.length > 0 && state !== 'syncing'){
     syncStatusEl.textContent = '📥';
     syncStatusEl.title = `${syncQueue.length} acțiuni în așteptare — se retrimit automat când revine semnalul`;
     syncQueueBadge.style.display = 'inline-block';
     syncQueueBadge.textContent = `${syncQueue.length} în așteptare`;
+    showOfflineBanner();
     return;
   }
   syncQueueBadge.style.display = 'none';
   if(state === 'syncing'){ syncStatusEl.textContent = '🔄'; syncStatusEl.title = 'Se sincronizează...'; }
-  else if(state === 'error'){ syncStatusEl.textContent = '⚠️'; syncStatusEl.title = 'Eroare de sincronizare — se reîncearcă la următoarea acțiune'; }
-  else { syncStatusEl.textContent = '☁️'; syncStatusEl.title = 'Sincronizat cu baza de date'; }
+  else if(state === 'error'){ syncStatusEl.textContent = '⚠️'; syncStatusEl.title = 'Eroare de sincronizare — se reîncearcă la următoarea acțiune'; showOfflineBanner(); }
+  else {
+    syncStatusEl.textContent = '☁️'; syncStatusEl.title = 'Sincronizat cu baza de date';
+    if(bannerIsOffline) showOnlineBanner();
+  }
 }
 
 function enqueueSync(key, desc, fn){
@@ -1769,20 +1820,56 @@ async function generateDailyPdf(kmEndEl){
     return ta - tb;
   });
 
-  const todayStr = new Date().toLocaleDateString('ro-RO');
+  const now = new Date();
+  const dayFullName = DAY_NAMES_RO[now.getDay()];
+  const dateWithDayStr = `${pad2(now.getDate())} ${MONTH_FULL_RO[now.getMonth()]} ${now.getFullYear()}, ${dayFullName}`;
+  const titleLine = dayStart.zona
+    ? `Raport zilnic - Euro Ecologic    ${dateWithDayStr}, Zona ${dayStart.zona}`
+    : `Raport zilnic - Euro Ecologic    ${dateWithDayStr}`;
+  const vehicleStr = `${dayStart.brand || '-'} ${dayStart.plate || '-'}`;
+
+  const startTimeStr = dayStart.startTime ? `${pad2(dayStart.startTime.getHours())}:${pad2(dayStart.startTime.getMinutes())}` : '-';
+  const endTimeStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  let totalOreHHMM = '-';
+  if(dayStart.startTime){
+    const totalMin = Math.round((now - dayStart.startTime)/60000);
+    if(totalMin >= 0){
+      totalOreHHMM = `${pad2(Math.floor(totalMin/60))}:${pad2(totalMin%60)}`;
+    }
+  }
+
+  const driversStr = [dayStart.driver1, dayStart.driver2].filter(Boolean).join(' & ') || '-';
+  const kmStartStr = `Km Start ${dayStart.kmStart ?? '-'}`;
+  const kmStopStr = `Km Stop ${kmEnd ?? '-'}`;
+  const totalKmStr = (dayStart.kmStart != null && kmEnd != null) ? `Total Km ${kmEnd - dayStart.kmStart}` : 'Total Km -';
 
   doc.setFontSize(16);
-  doc.text('Raport zilnic - Euro Ecologic', 14, 16);
+  doc.text(titleLine, 14, 16);
   doc.setFontSize(10);
-  let y = 25;
-  doc.text(`Data: ${todayStr}`, 14, y); y += 6;
-  doc.text(`Masina: ${dayStart.brand || '-'}   Nr: ${dayStart.plate || '-'}`, 14, y); y += 6;
-  doc.text(`Sofer 1: ${dayStart.driver1 || '-'}     Sofer 2: ${dayStart.driver2 || '-'}`, 14, y); y += 6;
-  let kmLine = `Km start: ${dayStart.kmStart ?? '-'}     Km sfarsit: ${kmEnd ?? '-'}`;
-  if(dayStart.kmStart != null && kmEnd != null){
-    kmLine += `     Km parcursi: ${kmEnd - dayStart.kmStart}`;
-  }
-  doc.text(kmLine, 14, y); y += 9;
+
+  // Fixed column x-positions (4 equal columns) so the "|" separators stay aligned
+  // regardless of how long any individual field's text turns out to be.
+  const colX = [14, 106, 154, 202];
+  const pipeX = [100, 148, 196];
+
+  let y = 27;
+  doc.text(vehicleStr, colX[0], y);
+  doc.text('|', pipeX[0], y);
+  doc.text(kmStartStr, colX[1], y);
+  doc.text('|', pipeX[1], y);
+  doc.text(kmStopStr, colX[2], y);
+  doc.text('|', pipeX[2], y);
+  doc.text(totalKmStr, colX[3], y);
+
+  y += 9;
+  doc.text(driversStr, colX[0], y);
+  doc.text('|', pipeX[0], y);
+  doc.text(`Ora Start ${startTimeStr}`, colX[1], y);
+  doc.text('|', pipeX[1], y);
+  doc.text(`Ora Stop ${endTimeStr}`, colX[2], y);
+  doc.text('|', pipeX[2], y);
+  doc.text(`Total ${totalOreHHMM} Ore`, colX[3], y);
+  y += 12;
 
   const obsLabel = (v)=>{
     if(v.obs === 'O') return 'Omis';
