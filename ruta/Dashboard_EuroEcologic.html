@@ -97,9 +97,9 @@
 
   .session-km{font-size:0.78rem; color:var(--text-dim); margin-top:10px;}
   .session-time{font-size:0.72rem; color:var(--text-dim); margin-top:6px;}
-  .session-locations{display:flex; gap:14px; margin-top:8px;}
-  .loc-link{font-size:0.75rem; color:var(--accent); text-decoration:none; font-weight:600;}
-  .loc-link:hover{text-decoration:underline;}
+  .session-locations{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px;}
+  .loc-depot{font-size:0.75rem; color:var(--activ); font-weight:700;}
+  .loc-pending{font-size:0.75rem; color:var(--text-dim); font-weight:600;}
 
   .empty{text-align:center; color:var(--text-dim); padding:50px 10px;}
   .error-box{
@@ -223,6 +223,63 @@ async function loadDashboard(){
   return '✖ Ordine normală';
 }
 
+const DEPOT = {lat: 45.8065, lon: 22.9256}; // Peștiș, jud. Hunedoara
+const DEPOT_RADIUS_KM = 0.03; // 30 metri
+
+function haversineDash(lat1, lon1, lat2, lon2){
+  const R = 6371;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLon = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const geocodeCache = {};
+const geocodeQueue = [];
+let geocodeBusy = false;
+
+function reverseGeocode(lat, lon, callback){
+  const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+  if(geocodeCache[key]){ callback(geocodeCache[key]); return; }
+  geocodeQueue.push({lat, lon, key, callback});
+  processGeocodeQueue();
+}
+
+async function processGeocodeQueue(){
+  if(geocodeBusy || geocodeQueue.length === 0) return;
+  geocodeBusy = true;
+  const item = geocodeQueue.shift();
+  try{
+    const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${item.lat}&lon=${item.lon}&zoom=18&addressdetails=1`,
+      { headers: {'Accept-Language': 'ro'} });
+    const data = await resp.json();
+    const addr = data.address || {};
+    const jud = (addr.county || addr.state || '').replace(/^Jude(t|ț)ul\s+/i, '');
+    const localitate = addr.city || addr.town || addr.village || addr.municipality || '';
+    const strada = [addr.road, addr.house_number].filter(Boolean).join(' ');
+    const formatted = [jud, localitate, strada].filter(Boolean).join(', ') || 'Adresă necunoscută';
+    geocodeCache[item.key] = formatted;
+    item.callback(formatted);
+  }catch(err){
+    console.error('Eroare geocodare:', err);
+    item.callback('Adresă indisponibilă');
+  }
+  setTimeout(()=>{ geocodeBusy = false; processGeocodeQueue(); }, 1100); // respectă limita Nominatim (max 1/sec)
+}
+
+function locationBadge(lat, lon, spanId, label){
+  if(lat == null || lon == null) return '';
+  const distKm = haversineDash(lat, lon, DEPOT.lat, DEPOT.lon);
+  if(distKm <= DEPOT_RADIUS_KM){
+    return `<span class="loc-depot">✅ ${label} Depozit</span>`;
+  }
+  reverseGeocode(lat, lon, (addr)=>{
+    const el = document.getElementById(spanId);
+    if(el) el.textContent = `📍 ${addr}`;
+  });
+  return `<span class="loc-pending" id="${spanId}">📍 Se localizează...</span>`;
+}
+
 function fmtDuration(startIso, endIso){
   if(!startIso || !endIso) return null;
   const ms = new Date(endIso) - new Date(startIso);
@@ -250,10 +307,8 @@ sessionList.innerHTML = sessions.map(s=>{
     if(s.zona) routeInfoParts.push(`📍 ${s.zona}`);
     if(ziuaLabel) routeInfoParts.push(`${ziuaLabel} · ${sortModeLabelDash(s.last_sort_mode)}`);
     const routeInfoLine = routeInfoParts.join(' &nbsp;·&nbsp; ');
-    const startLocLink = (s.start_lat!=null && s.start_lon!=null)
-      ? `<a href="https://www.google.com/maps?q=${s.start_lat},${s.start_lon}" target="_blank" rel="noopener" class="loc-link">📍 Locație pornire</a>` : '';
-    const endLocLink = (s.end_lat!=null && s.end_lon!=null)
-      ? `<a href="https://www.google.com/maps?q=${s.end_lat},${s.end_lon}" target="_blank" rel="noopener" class="loc-link">📍 Locație finalizare</a>` : '';
+    const startLocHtml = locationBadge(s.start_lat, s.start_lon, `loc-start-${s.id}`, 'Pornit');
+    const endLocHtml = locationBadge(s.end_lat, s.end_lon, `loc-end-${s.id}`, 'Finalizat');
     return `
     <div class="session-card ${s.status}">
       <div class="session-top">
@@ -274,7 +329,7 @@ sessionList.innerHTML = sessions.map(s=>{
       ${kmDriven!=null ? `<div class="session-km">Km parcurși: ${kmDriven} km</div>` : ''}
       <div class="session-time">Pornit la ${fmtTime(s.created_at)}${s.updated_at ? ' · ultima actualizare ' + fmtTime(s.updated_at) : ''}</div>
       ${duration ? `<div class="session-time">Timp efectuat: ${duration}</div>` : ''}
-      ${(startLocLink || endLocLink) ? `<div class="session-locations">${startLocLink}${endLocLink}</div>` : ''}
+      ${(startLocHtml || endLocHtml) ? `<div class="session-locations">${startLocHtml}${endLocHtml}</div>` : ''}
     </div>`;
   }).join('');
 }
