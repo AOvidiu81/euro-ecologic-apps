@@ -1821,6 +1821,16 @@ btnShareStart.addEventListener('click', async ()=>{
   window.open(waUrl, '_blank');
 });
 
+function stripDiacritics(str){
+  if(str === null || str === undefined) return str;
+  return String(str)
+    .replace(/ă/g,'a').replace(/Ă/g,'A')
+    .replace(/â/g,'a').replace(/Â/g,'A')
+    .replace(/î/g,'i').replace(/Î/g,'I')
+    .replace(/ș/g,'s').replace(/Ș/g,'S').replace(/ş/g,'s').replace(/Ş/g,'S')
+    .replace(/ț/g,'t').replace(/Ț/g,'T').replace(/ţ/g,'t').replace(/Ţ/g,'T');
+}
+
 async function generateDailyPdf(kmEndEl){
   kmEndEl = kmEndEl || kmEndInput2;
   if(!window.jspdf){
@@ -1841,10 +1851,10 @@ async function generateDailyPdf(kmEndEl){
   const now = new Date();
   const dayFullName = DAY_NAMES_RO[now.getDay()];
   const dateWithDayStr = `${pad2(now.getDate())} ${MONTH_FULL_RO[now.getMonth()]} ${now.getFullYear()}, ${dayFullName}`;
-  const titleLine = dayStart.zona
+  const titleLine = stripDiacritics(dayStart.zona
     ? `Raport zilnic - Euro Ecologic    ${dateWithDayStr}, Zona ${dayStart.zona}`
-    : `Raport zilnic - Euro Ecologic    ${dateWithDayStr}`;
-  const vehicleStr = `${dayStart.brand || '-'} ${dayStart.plate || '-'}`;
+    : `Raport zilnic - Euro Ecologic    ${dateWithDayStr}`);
+  const vehicleStr = stripDiacritics(`${dayStart.brand || '-'} ${dayStart.plate || '-'}`);
 
   const startTimeStr = dayStart.startTime ? `${pad2(dayStart.startTime.getHours())}:${pad2(dayStart.startTime.getMinutes())}` : '-';
   const endTimeStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
@@ -1856,7 +1866,7 @@ async function generateDailyPdf(kmEndEl){
     }
   }
 
-  const driversStr = [dayStart.driver1, dayStart.driver2].filter(Boolean).join(' & ') || '-';
+  const driversStr = stripDiacritics([dayStart.driver1, dayStart.driver2].filter(Boolean).join(' & ') || '-');
   const kmStartStr = `Km Start ${dayStart.kmStart ?? '-'}`;
   const kmStopStr = `Km Stop ${kmEnd ?? '-'}`;
   const totalKmStr = (dayStart.kmStart != null && kmEnd != null) ? `Total Km ${kmEnd - dayStart.kmStart}` : 'Total Km -';
@@ -1897,10 +1907,10 @@ async function generateDailyPdf(kmEndEl){
 
   const rows = entries.map(([key,v],i)=>{
     const r = dataById[key];
-    const client = r ? r.client : '(client necunoscut)';
-    const localitate = r ? [r.localitate, r.locatie].filter(Boolean).join(', ') : '';
+    const client = stripDiacritics(r ? r.client : '(client necunoscut)');
+    const localitate = stripDiacritics(r ? [r.localitate, r.locatie].filter(Boolean).join(', ') : '');
     const toalete = r ? (r.toalete || 0) : 0;
-    const frecventa = r && r.frecventa ? r.frecventa : '-';
+    const frecventa = stripDiacritics(r && r.frecventa ? r.frecventa : '-');
     const arriveStr = v.arrive ? (pad2(v.arrive.getHours())+':'+pad2(v.arrive.getMinutes())) : '-';
     const leaveStr = v.leave ? (pad2(v.leave.getHours())+':'+pad2(v.leave.getMinutes())) : '-';
     let durataStr = '-';
