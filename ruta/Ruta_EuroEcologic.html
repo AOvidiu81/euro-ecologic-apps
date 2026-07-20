@@ -2259,7 +2259,7 @@ function weekHistoryRowHtml(r){
     if(wn < 1) break;
     const raw = r.weekData ? r.weekData[String(wn)] : undefined;
     const colorClass = classifyWeekCell(raw);
-    const detail = raw ? `W${wn}: ${raw}` : `W${wn}: fara vizita`;
+    const detail = raw ? raw : 'Fără vizită';
     boxes.push(`<span class="week-box ${colorClass}" data-detail="${escapeHtml(detail)}">W${wn}</span>`);
   }
   if(!boxes.length) return '';
