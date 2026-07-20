@@ -223,6 +223,7 @@
   .week-box.orange{background:rgba(255,138,61,0.22); color:var(--accent); border:1px solid rgba(255,138,61,0.5);}
   .week-box.red{background:rgba(255,60,60,0.22); color:#ff7a7a; border:1px solid rgba(255,60,60,0.5);}
   .week-box.gray{background:rgba(147,163,176,0.12); color:var(--text-dim); border:1px solid var(--border);}
+  .week-box.yellow{background:rgba(255,214,51,0.22); color:#ffd633; border:1px solid rgba(255,214,51,0.5);}
 
   .actions{display:flex; gap:8px;}
   .btn{
@@ -2168,18 +2169,21 @@ function classifyWeekCell(raw){
   const v = String(raw).trim();
   if(v === '' || v === '-') return 'gray';
   const upper = v.toUpperCase();
-  if(upper === 'O') return 'orange';   // Omis — soferul a decis sa nu mearga
-  if(upper === 'S') return 'gray';     // Suspendat — clientul nu e activ momentan
+
+  // Codes can appear either bare (e.g. "A", "X", "R") or with an HHMM- time
+  // prefix (e.g. "0944-L", "0838-A"). Extract the meaningful code either way.
   const m = /^(\d{3,4})-([A-Za-z0-9]+)$/.exec(v);
-  if(m){
-    const suffix = m[2].toUpperCase();
-    if(suffix === 'LA') return 'red';        // Lipsa acces (a ajuns, nu a intrat)
-    if(suffix === 'R') return 'red';         // Ridicare produs
-    if(suffix === 'A') return 'green';       // Amplasare produs
-    if(/^[0-9]+$/.test(suffix)) return 'green'; // vizita normala, cu durata
-    return 'gray';
-  }
-  return 'gray';
+  const code = m ? m[2].toUpperCase() : upper;
+
+  if(code === 'O') return 'orange';        // Omis — soferul a decis sa nu mearga
+  if(code === 'S') return 'gray';          // Suspendat — clientul nu e activ momentan
+  if(code === 'X') return 'gray';          // Nu s-a vizitat (motiv nespecificat)
+  if(code === 'LA' || code === 'L') return 'yellow'; // Lipsa acces (a ajuns, nu a intrat)
+  if(code === 'R') return 'red';           // Ridicare produs
+  if(code === 'A') return 'green';         // Amplasare produs
+  if(m && /^[0-9]+$/.test(code)) return 'green'; // vizita normala, cu durata
+
+  return 'gray'; // orice cod nerecunoscut, ca fallback sigur
 }
 
 function getCurrentWeekNum(){
