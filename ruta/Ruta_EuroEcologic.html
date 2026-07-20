@@ -224,6 +224,13 @@
   .week-box.red{background:rgba(255,60,60,0.22); color:#ff7a7a; border:1px solid rgba(255,60,60,0.5);}
   .week-box.gray{background:rgba(147,163,176,0.12); color:var(--text-dim); border:1px solid var(--border);}
   .week-box.yellow{background:rgba(255,214,51,0.22); color:#ffd633; border:1px solid rgba(255,214,51,0.5);}
+  .week-box{cursor:pointer;}
+  #weekTooltip{
+    position:fixed; z-index:300; background:#1a1f2b; color:#fff;
+    padding:7px 12px; border-radius:8px; font-size:0.78rem; font-weight:700;
+    border:1px solid rgba(255,255,255,0.15); box-shadow:0 4px 14px rgba(0,0,0,0.4);
+    max-width:80vw; pointer-events:none;
+  }
 
   .actions{display:flex; gap:8px;}
   .btn{
@@ -443,6 +450,7 @@
 </head>
 <body>
 <div id="connBanner" style="display:none;"></div>
+<div id="weekTooltip" style="display:none;"></div>
 <div class="wrap" id="pageStart">
   <header>
     <h1>Ruta <span>EuroEcologic</span></h1>
@@ -1296,6 +1304,35 @@ function finalizeCardVisually(key, delayMs){
     render();
   }
 }
+
+const weekTooltip = document.getElementById('weekTooltip');
+let weekTooltipOpenBox = null;
+
+function hideWeekTooltip(){
+  weekTooltip.style.display = 'none';
+  weekTooltipOpenBox = null;
+}
+
+document.addEventListener('click', (e)=>{
+  const box = e.target.closest('.week-box');
+  if(box){
+    if(weekTooltipOpenBox === box){
+      hideWeekTooltip();
+      return;
+    }
+    weekTooltip.textContent = box.getAttribute('data-detail') || '';
+    weekTooltip.style.display = 'block';
+    weekTooltipOpenBox = box;
+    const rect = box.getBoundingClientRect();
+    const tw = weekTooltip.offsetWidth;
+    let left = rect.left + rect.width/2 - tw/2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+    weekTooltip.style.left = left + 'px';
+    weekTooltip.style.top = (rect.bottom + 6) + 'px';
+  } else {
+    hideWeekTooltip();
+  }
+});
 
 listEl.addEventListener('click', (e)=>{
   const arriveBtn = e.target.closest('.visit-btn.arrive');
@@ -2222,8 +2259,8 @@ function weekHistoryRowHtml(r){
     if(wn < 1) break;
     const raw = r.weekData ? r.weekData[String(wn)] : undefined;
     const colorClass = classifyWeekCell(raw);
-    const tooltip = raw ? `W${wn}: ${raw}` : `W${wn}: fara vizita`;
-    boxes.push(`<span class="week-box ${colorClass}" title="${escapeHtml(tooltip)}">W${wn}</span>`);
+    const detail = raw ? `W${wn}: ${raw}` : `W${wn}: fara vizita`;
+    boxes.push(`<span class="week-box ${colorClass}" data-detail="${escapeHtml(detail)}">W${wn}</span>`);
   }
   if(!boxes.length) return '';
   return `<div class="week-history-row">${boxes.join('')}</div>`;
@@ -2445,6 +2482,7 @@ function partitionDone(arr){
 }
 
 function render(){
+  hideWeekTooltip();
   const ziua = ziuaSel.value;
   const masina = masinaSel.value;
   const q = searchInput.value.trim().toLowerCase();
