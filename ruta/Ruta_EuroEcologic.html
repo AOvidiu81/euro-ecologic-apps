@@ -214,6 +214,16 @@
   }
   .bottom-tag-row .call-btn.disabled{opacity:0.35; pointer-events:none;}
 
+  .week-history-row{display:flex; gap:5px; margin-top:8px; flex-wrap:wrap;}
+  .week-box{
+    font-size:0.68rem; font-weight:800; padding:4px 8px; border-radius:6px;
+    letter-spacing:0.2px; cursor:default;
+  }
+  .week-box.green{background:rgba(61,220,151,0.22); color:var(--activ); border:1px solid rgba(61,220,151,0.5);}
+  .week-box.orange{background:rgba(255,138,61,0.22); color:var(--accent); border:1px solid rgba(255,138,61,0.5);}
+  .week-box.red{background:rgba(255,60,60,0.22); color:#ff7a7a; border:1px solid rgba(255,60,60,0.5);}
+  .week-box.gray{background:rgba(147,163,176,0.12); color:var(--text-dim); border:1px solid var(--border);}
+
   .actions{display:flex; gap:8px;}
   .btn{
     flex:1; text-align:center; padding:9px 8px; border-radius:9px; font-size:0.85rem;
@@ -2152,6 +2162,56 @@ function parseWeekCell(raw){
   return {valid:false, code:raw.trim(), raw};
 }
 
+function classifyWeekCell(raw){
+  if(raw === undefined || raw === null) return 'gray';
+  const v = String(raw).trim();
+  if(v === '' || v === '-') return 'gray';
+  const upper = v.toUpperCase();
+  if(upper === 'O') return 'orange';   // Omis — soferul a decis sa nu mearga
+  if(upper === 'S') return 'gray';     // Suspendat — clientul nu e activ momentan
+  const m = /^(\d{3,4})-([A-Za-z0-9]+)$/.exec(v);
+  if(m){
+    const suffix = m[2].toUpperCase();
+    if(suffix === 'LA') return 'red';        // Lipsa acces (a ajuns, nu a intrat)
+    if(suffix === 'R') return 'red';         // Ridicare produs
+    if(suffix === 'A') return 'green';       // Amplasare produs
+    if(/^[0-9]+$/.test(suffix)) return 'green'; // vizita normala, cu durata
+    return 'gray';
+  }
+  return 'gray';
+}
+
+function getCurrentWeekNum(){
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  let found = null;
+  let maxNum = null;
+  WEEKS.forEach(w=>{
+    if(maxNum === null || w.num > maxNum) maxNum = w.num;
+    if(!w.start || !w.end) return;
+    const s = new Date(w.start+'T00:00:00');
+    const e = new Date(w.end+'T23:59:59');
+    if(today >= s && today <= e) found = w.num;
+  });
+  return found !== null ? found : maxNum;
+}
+
+function weekHistoryRowHtml(r){
+  const curWeek = getCurrentWeekNum();
+  if(curWeek === null) return '';
+  const boxes = [];
+  for(let i=1; i<=6; i++){
+    const wn = curWeek - i;
+    if(wn < 1) break;
+    const raw = r.weekData ? r.weekData[String(wn)] : undefined;
+    const colorClass = classifyWeekCell(raw);
+    const tooltip = raw ? `W${wn}: ${raw}` : `W${wn}: fara vizita`;
+    boxes.push(`<span class="week-box ${colorClass}" title="${escapeHtml(tooltip)}">W${wn}</span>`);
+  }
+  if(!boxes.length) return '';
+  return `<div class="week-history-row">${boxes.join('')}</div>`;
+}
+
 function haversine(lat1, lon1, lat2, lon2){
   const R = 6371;
   const dLat = (lat2-lat1) * Math.PI/180;
@@ -2339,6 +2399,7 @@ function cardHtml(r, orderNum, historyInfo){
       ${r.masina ? `<span class="badge masina ${masinaClass}">${r.masina}</span>`:''}
       <a class="call-btn ${hasTel?'':'disabled'}" href="${hasTel? telUrl(r.telefon):'#'}">📞 Sună</a>
     </div>
+    ${weekHistoryRowHtml(r)}
   </div>`;
 }
 
