@@ -1334,6 +1334,12 @@ document.addEventListener('click', (e)=>{
   }
 });
 
+// The tooltip is positioned relative to the viewport at tap-time; if the page scrolls,
+// it would stay frozen in place instead of following its box. Simplest fix: close it on scroll.
+window.addEventListener('scroll', ()=>{
+  if(weekTooltipOpenBox) hideWeekTooltip();
+}, {passive:true, capture:true});
+
 listEl.addEventListener('click', (e)=>{
   const arriveBtn = e.target.closest('.visit-btn.arrive');
   const leaveBtn = e.target.closest('.visit-btn.leave');
