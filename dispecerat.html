@@ -309,8 +309,12 @@ function genereazaTextComanda(s, contract, client, anexa, produs, depozitComerci
   const dt = new Date(s.data);
   const zi = `${zileSaptamana[dt.getDay()]} - ${String(dt.getDate()).padStart(2,"0")}.${String(dt.getMonth()+1).padStart(2,"0")}.${dt.getFullYear()}`;
   const cantitateSemnata = (s.tip_actiune==="RIDICARE" || s.tip_actiune==="REDUCERE") ? -Math.abs(s.cantitate||0) : Math.abs(s.cantitate||0);
+  const numeClient = client?.nume || s.client_nume_liber || "-";
+  const judet = anexa?.locatie_judet || s.locatie_judet || "-";
+  const localitate = anexa?.locatie_localitate || s.locatie_localitate || "-";
+  const adresa = anexa?.locatie_adresa || s.locatie_adresa || "-";
   return `*${s.tip_actiune}*    ${zi}    ${cantitateSemnata}    ${produs?.categorie||""}    ${produs?.model||""}    `+
-    `NUME CL: ${client?.nume||"-"}    JUD.: ${anexa?.locatie_judet||"-"}    LOC.: ${anexa?.locatie_localitate||"-"}    ${anexa?.locatie_adresa||"-"}    `+
+    `NUME CL: ${numeClient}    JUD.: ${judet}    LOC.: ${localitate}    ${adresa}    `+
     `PERS. RES.: ${anexa?.persoana_contact||"-"}    TEL.: ${anexa?.telefon||"-"}    SERVISARE: ${anexa?.frecventa_servisare||"-"}    `+
     `CTR.: ${depozitComercial?.nume||"-"}    DEP.: ${depozitSursa?.nume||"-"}    ROG PV DE - ${s.tip_actiune}`;
 }
@@ -336,11 +340,12 @@ async function incarcaSarciniData(lunaStr){
 function locatieSarcina(s){
   const anexa = state.cache.anexe.find(a=>a.id===s.anexa_id);
   if(anexa) return [anexa.locatie_localitate, anexa.locatie_adresa].filter(Boolean).join(" · ");
-  return [s.locatie_localitate, s.locatie_adresa].filter(Boolean).join(" · "); // compatibilitate cu sarcini vechi, fara anexa
+  return [s.locatie_localitate, s.locatie_adresa, s.locatie_judet].filter(Boolean).join(" · "); // compatibilitate cu sarcini vechi + comenzi cu client liber, fara anexa
 }
 
-function numeClientDinContract(contractId){
-  const c = state.cache.contracte.find(x=>x.id===contractId);
+function numeClientSarcina(s){
+  if(s.client_nume_liber) return s.client_nume_liber + " (liber)";
+  const c = state.cache.contracte.find(x=>x.id===s.contract_id);
   if(!c) return "-";
   const cl = state.cache.clienti.find(x=>x.id===c.client_id);
   return cl ? cl.nume : "-";
@@ -434,7 +439,7 @@ async function renderSarcini(){
             return `
             <div class="sarcina-item" data-id="${s.id}">
               <div class="info">
-                <div class="client">${esc(numeClientDinContract(s.contract_id))} ${produs ? "— "+esc(produs.model) : ""}</div>
+                <div class="client">${esc(numeClientSarcina(s))} ${produs ? "— "+esc(produs.model) : ""}</div>
                 <div class="detalii">${esc(locatieSarcina(s)) || "locație nespecificată"}</div>
               </div>
               <div class="dreapta">
@@ -539,7 +544,7 @@ async function renderIstoric(){
             return `
             <div class="sarcina-item" data-id="${s.id}">
               <div class="info">
-                <div class="client">${esc(numeClientDinContract(s.contract_id))} ${produs ? "— "+esc(produs.model) : ""}</div>
+                <div class="client">${esc(numeClientSarcina(s))} ${produs ? "— "+esc(produs.model) : ""}</div>
                 <div class="detalii">${esc(locatieSarcina(s)) || "locație nespecificată"}</div>
               </div>
               <div class="dreapta">
@@ -620,7 +625,7 @@ async function deschideDetaliiSarcina(id){
 
   deschideModal(`
     <div class="modal-header"><h2>Detalii comandă</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
-    <div class="detalii-linie"><span>Client</span><span>${esc(numeClientDinContract(s.contract_id))}</span></div>
+    <div class="detalii-linie"><span>Client</span><span>${esc(numeClientSarcina(s))}</span></div>
     <div class="detalii-linie"><span>Contract</span><span>${esc(contract?.nr_contract||"-")}</span></div>
     <div class="detalii-linie"><span>Tip acțiune</span><span>${LABEL_TIP[s.tip_actiune]||s.tip_actiune}</span></div>
     <div class="detalii-linie"><span>Produs</span><span>${esc(produs?.model||"-")}</span></div>
@@ -628,7 +633,7 @@ async function deschideDetaliiSarcina(id){
     <div class="detalii-linie"><span>Șofer</span><span>${esc(sofer?.nume||"Nealocat")}</span></div>
     <div class="detalii-linie"><span>Rută</span><span>${esc(ruta?.nume||"-")} ${masina?("("+esc(masina.numar_inmatriculare)+")"):""}</span></div>
     <div class="detalii-linie"><span>Depozit sursă</span><span>${esc(depozitSursa?.nume||"-")}</span></div>
-    <div class="detalii-linie"><span>Locație (anexă)</span><span>${esc(locatieSarcina(s))||"-"}</span></div>
+    <div class="detalii-linie"><span>Locație</span><span>${esc(locatieSarcina(s))||"-"}</span></div>
     <div class="detalii-linie"><span>Data</span><span>${fmtData(s.data)}</span></div>
     <div class="detalii-linie"><span>Serie (notă)</span><span>${esc(s.serie_nota||"-")}</span></div>
     <div class="detalii-linie"><span>Nr. PV</span><span>${esc(s.nr_pv||"-")}</span></div>
@@ -707,7 +712,8 @@ async function deschideModalSarcinaNoua(){
     <div class="modal-header"><h2>Comandă nouă</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
     <div class="camp">
       <label>Client</label>
-      <input id="f-client-nume" list="datalist-clienti-comanda" placeholder="Scrie numele clientului...">
+      <input id="f-client-nume" list="datalist-clienti-comanda" placeholder="Scrie orice nume — nu trebuie să existe deja în bază">
+      <div class="sub" style="font-size:11px;color:var(--text-slab);margin-top:4px;">Poți trece un client care nu e în baza noastră (ex: comandă pentru alt depozit, livrată din al tău).</div>
       <datalist id="datalist-clienti-comanda">
         ${state.cache.clienti.map(c=>`<option value="${esc(c.nume)}">`).join("")}
       </datalist>
@@ -718,7 +724,7 @@ async function deschideModalSarcinaNoua(){
       <select id="f-contract" disabled><option value="">— scrie întâi numele clientului —</option></select>
     </div>
     <div class="camp">
-      <label>Anexă nr.</label>
+      <label>Anexă nr. <span style="font-weight:400;color:var(--text-slab);">(doar dacă există contract)</span></label>
       <input id="f-nr-anexa" list="datalist-anexe-comanda" disabled placeholder="ex: 1, sau 1-S / 1-R la modificare (suplimentare/reducere)">
       <datalist id="datalist-anexe-comanda"></datalist>
       <div class="sub" id="hint-anexa" style="font-size:11.5px;color:var(--text-slab);margin-top:5px;"></div>
@@ -807,29 +813,43 @@ async function deschideModalSarcinaNoua(){
   const selTip = document.getElementById("f-tip");
 
   function randContracteClient(){
-    const numeScris = inputClient.value.trim().toLowerCase();
+    const numeScris = inputClient.value.trim();
+    const numeScrisLower = numeScris.toLowerCase();
     const hintClient = document.getElementById("hint-client");
+
     if(!numeScris){
       selContract.innerHTML = `<option value="">— scrie întâi numele clientului —</option>`;
       selContract.disabled = true;
       hintClient.innerHTML = "";
-      randAnexeContract();
+      inputAnexa.value = ""; inputAnexa.disabled = true;
+      cardAdresaAnexa.style.display = "none";
+      document.getElementById("card-cantitate-activa").style.display = "none";
       return;
     }
-    const client = state.cache.clienti.find(c=>(c.nume||"").trim().toLowerCase() === numeScris);
+
+    const client = state.cache.clienti.find(c=>(c.nume||"").trim().toLowerCase() === numeScrisLower);
+
     if(!client){
-      selContract.innerHTML = `<option value="">— client inexistent —</option>`;
+      // client care nu exista in baza - se creeaza comanda doar cu numele scris + locatie libera
+      selContract.innerHTML = `<option value="">— fără cont în bază —</option>`;
       selContract.disabled = true;
-      hintClient.innerHTML = `⚠️ Acest client nu există încă. Creează-l din tab-ul <b>Clienți &amp; Contracte</b>, apoi revino aici.`;
-      randAnexeContract();
+      hintClient.innerHTML = `ℹ️ Client nesalvat în baza noastră — comanda se creează doar cu numele scris și locația de mai jos (posibil livrare pentru alt depozit).`;
+      inputAnexa.value = ""; inputAnexa.disabled = true;
+      cardAdresaAnexa.style.display = "block";
+      fAnexaJudet.disabled = fAnexaLocalitate.disabled = fAnexaAdresa.disabled = false;
+      document.getElementById("card-cantitate-activa").style.display = "none";
       return;
     }
+
     const contracteClient = state.cache.contracte.filter(c=>c.client_id===client.id);
     if(contracteClient.length===0){
       selContract.innerHTML = `<option value="">— fără contract —</option>`;
       selContract.disabled = true;
-      hintClient.innerHTML = `✓ Client găsit, dar nu are niciun contract. Adaugă un contract din <b>Clienți &amp; Contracte</b>.`;
-      randAnexeContract();
+      hintClient.innerHTML = `✓ Client găsit în bază, dar fără contract. Adaugă un contract din <b>Clienți &amp; Contracte</b>, sau continuă doar cu numele și locația liberă de mai jos.`;
+      inputAnexa.value = ""; inputAnexa.disabled = true;
+      cardAdresaAnexa.style.display = "block";
+      fAnexaJudet.disabled = fAnexaLocalitate.disabled = fAnexaAdresa.disabled = false;
+      document.getElementById("card-cantitate-activa").style.display = "none";
       return;
     }
     hintClient.innerHTML = `✓ Client găsit`;
@@ -907,20 +927,34 @@ async function deschideModalSarcinaNoua(){
   inputCantitate.addEventListener("input", actualizeazaCantitateActiva);
 
   document.getElementById("btn-creeaza-sarcina").addEventListener("click", async ()=>{
-    const contract_id = selContract.value;
-    if(!contract_id){ toast("Selectează un contract", true); return; }
-    const { gasita: anexaGasita, tipat: nrAnexaTipat } = anexaGasitaSauBaza();
-    if(!nrAnexaTipat){ toast("Completează numărul anexei", true); return; }
+    const numeClientScris = inputClient.value.trim();
+    if(!numeClientScris){ toast("Scrie numele clientului", true); return; }
+    const contract_id = selContract.value || null;
 
-    let anexa_id = anexaGasita?.id;
-    if(!anexa_id){
-      const anexaNoua = await q(supa.from("anexe").insert({
-        contract_id, nr_anexa: nrAnexaTipat,
-        locatie_judet: fAnexaJudet.value||null, locatie_localitate: fAnexaLocalitate.value||null, locatie_adresa: fAnexaAdresa.value||null,
-        status: "activ",
-      }).select().single(), "Nu am putut crea anexa");
-      anexa_id = anexaNoua.id;
-      state.cache.anexe.push(anexaNoua);
+    let anexa_id = null;
+    let client_nume_liber = null;
+    let locatie_judet = null, locatie_localitate = null, locatie_adresa = null;
+
+    if(contract_id){
+      // client cunoscut, cu contract - flux normal, cu anexa legata de contract
+      const { gasita: anexaGasita, tipat: nrAnexaTipat } = anexaGasitaSauBaza();
+      if(!nrAnexaTipat){ toast("Completează numărul anexei", true); return; }
+      anexa_id = anexaGasita?.id;
+      if(!anexa_id){
+        const anexaNoua = await q(supa.from("anexe").insert({
+          contract_id, nr_anexa: nrAnexaTipat,
+          locatie_judet: fAnexaJudet.value||null, locatie_localitate: fAnexaLocalitate.value||null, locatie_adresa: fAnexaAdresa.value||null,
+          status: "activ",
+        }).select().single(), "Nu am putut crea anexa");
+        anexa_id = anexaNoua.id;
+        state.cache.anexe.push(anexaNoua);
+      }
+    } else {
+      // client liber (nu exista in baza, sau exista dar fara contract) - salvam doar numele + locatia libera
+      client_nume_liber = numeClientScris;
+      locatie_judet = fAnexaJudet.value || null;
+      locatie_localitate = fAnexaLocalitate.value || null;
+      locatie_adresa = fAnexaAdresa.value || null;
     }
 
     const tip_actiune = selTip.value;
@@ -936,7 +970,9 @@ async function deschideModalSarcinaNoua(){
     }
 
     const payload = {
-      contract_id, anexa_id, tip_actiune,
+      contract_id, anexa_id, client_nume_liber,
+      locatie_judet, locatie_localitate, locatie_adresa,
+      tip_actiune,
       data: dataComanda,
       produs_id, cantitate,
       depozit_sursa_id,
@@ -1767,7 +1803,7 @@ async function renderResurse(){
     <div class="card" style="cursor:pointer;margin-bottom:8px;" data-id="${m.id}">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <div style="font-weight:700;font-size:13.5px;">${esc(m.numar_inmatriculare)}</div>
+          <div style="font-weight:700;font-size:13.5px;">${esc(m.numar_inmatriculare)} ${m.activ===false?'<span class="badge problema" style="margin-left:6px;">inactivă</span>':''}</div>
           <div class="sub">${esc(m.model||"marcă nespecificată")}</div>
         </div>
         <span>✎</span>
@@ -1878,11 +1914,15 @@ function deschideModalSoferEdit(s){
     renderResurse();
   });
   document.getElementById("btn-sterge-sofer").addEventListener("click", async ()=>{
-    if(!confirm("Sigur ștergi acest șofer?")) return;
-    await q(supa.from("soferi").delete().eq("id", s.id), "Nu am putut șterge");
-    toast("Șofer șters");
-    inchideModal();
-    renderResurse();
+    if(!confirm("Sigur ștergi acest șofer? Dacă a fost folosit deja într-o comandă/sesiune, ștergerea va fi blocată — dezactiveaz-o în loc, din câmpul de mai sus.")) return;
+    try{
+      await q(supa.from("soferi").delete().eq("id", s.id), "Nu am putut șterge");
+      toast("Șofer șters");
+      inchideModal();
+      renderResurse();
+    }catch(e){
+      toast("Nu poate fi șters — are deja istoric legat. Dezactivează-l în loc (câmpul Activ).", true);
+    }
   });
 }
 
@@ -1899,7 +1939,7 @@ function deschideModalMasinaNoua(){
   document.getElementById("btn-salveaza-masina").addEventListener("click", async ()=>{
     const nr = document.getElementById("f-nr").value.trim();
     if(!nr){ toast("Numărul de înmatriculare este obligatoriu", true); return; }
-    await q(supa.from("masini").insert({ numar_inmatriculare: nr, model: document.getElementById("f-model").value||null }), "Nu am putut salva mașina");
+    await q(supa.from("masini").insert({ numar_inmatriculare: nr, model: document.getElementById("f-model").value||null, activ: true }), "Nu am putut salva mașina");
     toast("Mașină adăugată");
     inchideModal();
     renderResurse();
@@ -1911,6 +1951,13 @@ function deschideModalMasinaEdit(m){
     <div class="modal-header"><h2>Editează mașină</h2><button class="modal-close" onclick="inchideModal()">✕</button></div>
     <div class="camp"><label>Număr înmatriculare *</label><input id="f-nr" value="${esc(m.numar_inmatriculare)}"></div>
     <div class="camp"><label>Marcă</label><input id="f-model" value="${esc(m.model||"")}" placeholder="ex: Renault, Mercedes"></div>
+    <div class="camp">
+      <label>Activ</label>
+      <select id="f-activ">
+        <option value="true" ${m.activ!==false?"selected":""}>Da</option>
+        <option value="false" ${m.activ===false?"selected":""}>Nu (inactivă / scoasă din uz)</option>
+      </select>
+    </div>
     <div class="modal-actiuni">
       <button class="btn pericol mic" id="btn-sterge-masina">Șterge</button>
       <button class="btn secundar mic" onclick="inchideModal()">Anulează</button>
@@ -1918,17 +1965,24 @@ function deschideModalMasinaEdit(m){
     </div>
   `);
   document.getElementById("btn-salveaza-masina").addEventListener("click", async ()=>{
-    await q(supa.from("masini").update({ numar_inmatriculare: document.getElementById("f-nr").value.trim(), model: document.getElementById("f-model").value||null }).eq("id", m.id), "Nu am putut salva");
+    await q(supa.from("masini").update({
+      numar_inmatriculare: document.getElementById("f-nr").value.trim(), model: document.getElementById("f-model").value||null,
+      activ: document.getElementById("f-activ").value==="true",
+    }).eq("id", m.id), "Nu am putut salva");
     toast("Mașină actualizată");
     inchideModal();
     renderResurse();
   });
   document.getElementById("btn-sterge-masina").addEventListener("click", async ()=>{
-    if(!confirm("Sigur ștergi această mașină?")) return;
-    await q(supa.from("masini").delete().eq("id", m.id), "Nu am putut șterge");
-    toast("Mașină ștearsă");
-    inchideModal();
-    renderResurse();
+    if(!confirm("Sigur ștergi această mașină? Dacă a fost folosită deja într-o comandă/sesiune, ștergerea va fi blocată — dezactiveaz-o în loc, din câmpul de mai sus.")) return;
+    try{
+      await q(supa.from("masini").delete().eq("id", m.id), "Nu am putut șterge");
+      toast("Mașină ștearsă");
+      inchideModal();
+      renderResurse();
+    }catch(e){
+      toast("Nu poate fi ștearsă — are deja istoric legat. Dezactiveaz-o în loc (câmpul Activ).", true);
+    }
   });
 }
 
