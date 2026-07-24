@@ -979,10 +979,49 @@ function setSyncStatus(state){
   }
 }
 
-function enqueueSync(key, desc, fn){
+const SYNC_QUEUE_STORAGE_KEY = 'ruta_ee_sync_queue_v1';
+
+function saveQueueToStorage(){
+  try{ localStorage.setItem(SYNC_QUEUE_STORAGE_KEY, JSON.stringify(syncQueue)); }
+  catch(err){ /* storage indisponibil — coada tot funcționează pentru sesiunea curentă */ }
+}
+
+function loadQueueFromStorage(){
+  try{
+    const raw = localStorage.getItem(SYNC_QUEUE_STORAGE_KEY);
+    if(raw) syncQueue = JSON.parse(raw);
+  }catch(err){ syncQueue = []; }
+}
+
+function enqueueSync(key, desc, payload){
   syncQueue = syncQueue.filter(item => item.key !== key); // dedupe: keep only the latest attempt per client/session
-  syncQueue.push({key, desc, fn});
+  syncQueue.push({key, desc, ...payload});
+  saveQueueToStorage();
   setSyncStatus('queued');
+}
+
+async function runQueueItem(item){
+  if(item.type === 'visit'){
+    const { error } = await sb.from('visit_logs').upsert({
+      session_id: item.sessionId,
+      client_id: item.clientId,
+      client_name: item.clientName,
+      localitate: item.localitate,
+      arrive_time: item.arrive,
+      leave_time: item.leave,
+      obs: item.obs,
+      lat: item.lat,
+      lon: item.lon,
+      updated_at: new Date().toISOString(),
+    }, {onConflict: 'session_id,client_id'});
+    if(error) throw error;
+  } else if(item.type === 'finalize'){
+    const { error } = await sb.from('route_sessions').update({
+      km_end: item.kmEnd, status: 'finalizata', updated_at: new Date().toISOString(),
+      end_lat: item.endLat, end_lon: item.endLon,
+    }).eq('id', item.sessionId);
+    if(error) throw error;
+  }
 }
 
 async function processQueue(){
@@ -992,8 +1031,9 @@ async function processQueue(){
   const items = [...syncQueue];
   for(const item of items){
     try{
-      await item.fn();
-      syncQueue = syncQueue.filter(q => q !== item);
+      await runQueueItem(item);
+      syncQueue = syncQueue.filter(q => q.key !== item.key);
+      saveQueueToStorage();
     }catch(err){
       console.error('Reîncercare eșuată, rămâne în coadă:', item.desc, err);
     }
@@ -1001,8 +1041,22 @@ async function processQueue(){
   queueProcessing = false;
   setSyncStatus(syncQueue.length ? 'queued' : 'ok');
 }
+loadQueueFromStorage();
+processQueue();
 window.addEventListener('online', processQueue);
 setInterval(processQueue, 15000);
+
+function reapplyPendingQueueToVisitLog(){
+  syncQueue.forEach(item=>{
+    if(item.type === 'visit' && item.sessionId === currentSessionId){
+      visitLog[String(item.clientId)] = {
+        arrive: item.arrive ? new Date(item.arrive) : null,
+        leave: item.leave ? new Date(item.leave) : null,
+        obs: item.obs || null,
+      };
+    }
+  });
+}
 
 function getCurrentPositionAsync(){
   return new Promise((resolve)=>{
@@ -1051,6 +1105,7 @@ async function findOrCreateSession(){
           obs: v.obs || null,
         };
       });
+      reapplyPendingQueueToVisitLog();
       setSyncStatus('ok');
       return s;
     }
@@ -1106,6 +1161,7 @@ async function resumeSession(session){
         obs: v.obs || null,
       };
     });
+    reapplyPendingQueueToVisitLog();
     setSyncStatus('ok');
   }catch(err){
     console.error('Eroare la reluarea rutei:', err);
@@ -1174,28 +1230,25 @@ checkActiveSessions();
 
 async function syncVisit(clientId, r, patch){
   if(!sb || !currentSessionId) return;
-  const doWrite = async ()=>{
-    const { error } = await sb.from('visit_logs').upsert({
-      session_id: currentSessionId,
-      client_id: clientId,
-      client_name: r ? r.client : null,
-      localitate: r ? [r.localitate, r.locatie].filter(Boolean).join(', ') : null,
-      arrive_time: patch.arrive ? patch.arrive.toISOString() : null,
-      leave_time: patch.leave ? patch.leave.toISOString() : null,
-      obs: patch.obs || null,
-      lat: patch.lat ?? null,
-      lon: patch.lon ?? null,
-      updated_at: new Date().toISOString(),
-    }, {onConflict: 'session_id,client_id'});
-    if(error) throw error;
+  const payload = {
+    type: 'visit',
+    sessionId: currentSessionId,
+    clientId,
+    clientName: r ? r.client : null,
+    localitate: r ? [r.localitate, r.locatie].filter(Boolean).join(', ') : null,
+    arrive: patch.arrive ? patch.arrive.toISOString() : null,
+    leave: patch.leave ? patch.leave.toISOString() : null,
+    obs: patch.obs || null,
+    lat: patch.lat ?? null,
+    lon: patch.lon ?? null,
   };
   setSyncStatus('syncing');
   try{
-    await doWrite();
+    await runQueueItem(payload);
     setSyncStatus(syncQueue.length ? 'queued' : 'ok');
   }catch(err){
     console.error('Supabase syncVisit error, adăugat în coadă:', err);
-    enqueueSync('client:'+clientId, `vizită ${r ? r.client : clientId}`, doWrite);
+    enqueueSync('client:'+clientId, `vizită ${r ? r.client : clientId}`, payload);
   }
 }
 
@@ -1221,22 +1274,20 @@ async function deleteVisitSync(clientId){
 async function finalizeSessionSync(kmEnd){
   if(!sb || !currentSessionId) return;
   const endPos = await getCurrentPositionAsync();
-  const doFinalize = async ()=>{
-    const { error } = await sb.from('route_sessions')
-      .update({
-        km_end: kmEnd, status: 'finalizata', updated_at: new Date().toISOString(),
-        end_lat: endPos ? endPos.lat : null, end_lon: endPos ? endPos.lon : null,
-      })
-      .eq('id', currentSessionId);
-    if(error) throw error;
+  const payload = {
+    type: 'finalize',
+    sessionId: currentSessionId,
+    kmEnd,
+    endLat: endPos ? endPos.lat : null,
+    endLon: endPos ? endPos.lon : null,
   };
   setSyncStatus('syncing');
   try{
-    await doFinalize();
+    await runQueueItem(payload);
     setSyncStatus(syncQueue.length ? 'queued' : 'ok');
   }catch(err){
     console.error('Supabase finalizeSessionSync error, adăugat în coadă:', err);
-    enqueueSync('finalize:'+currentSessionId, 'finalizare rută', doFinalize);
+    enqueueSync('finalize:'+currentSessionId, 'finalizare rută', payload);
   }
 }
 
