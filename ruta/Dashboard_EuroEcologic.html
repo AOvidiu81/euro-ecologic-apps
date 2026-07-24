@@ -98,6 +98,12 @@
   .session-km{font-size:0.78rem; color:var(--text-dim); margin-top:10px;}
   .session-time{font-size:0.72rem; color:var(--text-dim); margin-top:6px;}
   .session-locations{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px;}
+  .finalize-btn{
+    margin-top:12px; width:100%; padding:10px; border-radius:10px; border:1px solid rgba(61,220,151,0.4);
+    background:rgba(61,220,151,0.12); color:var(--activ); font-weight:700; font-size:0.85rem; cursor:pointer;
+  }
+  .finalize-btn:hover{background:rgba(61,220,151,0.22);}
+  .finalize-btn:disabled{opacity:0.5; cursor:default;}
   .loc-depot{font-size:0.75rem; color:var(--activ); font-weight:700;}
   .loc-pending{font-size:0.75rem; color:var(--text-dim); font-weight:600;}
 
@@ -330,12 +336,33 @@ sessionList.innerHTML = sessions.map(s=>{
       <div class="session-time">Pornit la ${fmtTime(s.created_at)}${s.updated_at ? ' · ultima actualizare ' + fmtTime(s.updated_at) : ''}</div>
       ${duration ? `<div class="session-time">Timp efectuat: ${duration}</div>` : ''}
       ${(startLocHtml || endLocHtml) ? `<div class="session-locations">${startLocHtml}${endLocHtml}</div>` : ''}
+      ${s.status === 'activa' ? `<button class="finalize-btn" data-session-id="${s.id}">✅ Finalizează ruta</button>` : ''}
     </div>`;
   }).join('');
 }
 
 dateFilter.addEventListener('change', ()=>{ updateDateFilterLabel(); loadDashboard(); });
 statusFilter.addEventListener('change', loadDashboard);
+
+sessionList.addEventListener('click', async (e)=>{
+  const btn = e.target.closest('.finalize-btn');
+  if(!btn) return;
+  const sessionId = btn.getAttribute('data-session-id');
+  if(!confirm('Sigur vrei să marchezi această rută ca finalizată? Șoferul nu va mai putea continua vizitele pe ea.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Se finalizează...';
+  try{
+    const { error } = await sb.from('route_sessions')
+      .update({ status: 'finalizata', updated_at: new Date().toISOString() })
+      .eq('id', sessionId);
+    if(error) throw error;
+    loadDashboard();
+  }catch(err){
+    alert('Eroare la finalizare: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = '✅ Finalizează ruta';
+  }
+});
 
 loadDashboard();
 
