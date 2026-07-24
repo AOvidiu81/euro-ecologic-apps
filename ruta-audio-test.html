@@ -408,8 +408,8 @@
       const outside = d > state.settings.radius + 60; // hysteresis buffer
       if(inside && !loc.announced){
         loc.announced = true;
-        speak(`Ați ajuns la ${loc.name}, ${loc.addr}`);
-        addLog(`🔊 Anunț sosire — <b>${escapeHtml(loc.name)}</b> (${Math.round(d)} m)`);
+        speak(`Sunteți în zona ${loc.name}, ${loc.addr}`);
+        addLog(`🔊 Anunț zonă — <b>${escapeHtml(loc.name)}</b> (${Math.round(d)} m)`);
         renderLocations();
       } else if(outside && loc.announced && !loc.arrivedAt){
         loc.announced = false;
@@ -434,8 +434,8 @@
   function triggerArrival(loc){
     if(!loc.announced){
       loc.announced = true;
-      speak(`Ați ajuns la ${loc.name}, ${loc.addr}`);
-      addLog(`🔊 Anunț sosire (simulat) — <b>${escapeHtml(loc.name)}</b>`);
+      speak(`Sunteți în zona ${loc.name}, ${loc.addr}`);
+      addLog(`🔊 Anunț zonă (simulat) — <b>${escapeHtml(loc.name)}</b>`);
     }
     renderLocations();
   }
