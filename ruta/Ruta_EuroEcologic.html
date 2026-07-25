@@ -182,8 +182,12 @@
   .client{font-weight:700; font-size:1.02rem; line-height:1.25; transition: color 0.6s ease;}
   .cartela-badge{
     display:inline-block; font-size:0.68rem; font-weight:800; vertical-align:middle;
-    background:rgba(78,167,46,0.22); color:#6fd94a; border:1px solid rgba(78,167,46,0.55);
     padding:2px 8px; border-radius:8px; margin-left:6px;
+    animation: cartelaPulse 2s ease-in-out infinite;
+  }
+  @keyframes cartelaPulse{
+    0%, 100% { background:rgba(78,167,46,0.28); color:#6fd94a; border:1px solid rgba(78,167,46,0.6); }
+    50% { background:rgba(255,138,61,0.28); color:#ff9d4d; border:1px solid rgba(255,138,61,0.6); }
   }
   .badges{display:flex; gap:6px; flex-shrink:0;}
   .badge{
@@ -307,6 +311,7 @@
   .import-bar .tag-btn.export{}
   .import-status{
     width:100%; font-size:0.76rem; color:var(--text-dim); padding:2px 2px 0;
+    white-space:pre-line;
   }
   .import-status.ok{color:var(--activ);}
   .import-status.err{color:var(--inactiv);}
@@ -535,7 +540,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v5)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v7)</div>
   </div>
 </div>
 
@@ -848,7 +853,17 @@ function parseWorkbookSheet(ws){
   }
 
   const weeks = weekCols.map(w=>({num:w.num, col:w.idx, start:toISODate(startDateRow[w.idx]), end:toISODate(endDateRow[w.idx])}));
-  return {records, weeks};
+  const cartelaDebug = {
+    columnFound: colCartela >= 0,
+    headerTextRaw: colCartela >= 0 ? JSON.stringify(headerRow[colCartela]) : null,
+    sampleRawValues: colCartela >= 0
+      ? rows.slice(hdrRowIdx+1, hdrRowIdx+400)
+          .map(row=> row && row[colCartela])
+          .filter(v=> v!=null && String(v).trim()!=='')
+          .slice(0,5)
+      : [],
+  };
+  return {records, weeks, cartelaDebug};
 }
 
 function downloadBlob(content, filename, mime){
@@ -1718,7 +1733,7 @@ excelFileInput.addEventListener('change', async (e)=>{
     const wb = XLSX.read(buf, {type:'array', cellDates:true, cellStyles:true});
     const sheetName = wb.SheetNames.includes('Ruta_HD') ? 'Ruta_HD' : wb.SheetNames[0];
     const ws = wb.Sheets[sheetName];
-    const {records, weeks} = parseWorkbookSheet(ws);
+    const {records, weeks, cartelaDebug} = parseWorkbookSheet(ws);
 
     records.forEach(r=> r._id = makeClientKey(r));
 
@@ -1787,7 +1802,14 @@ excelFileInput.addEventListener('change', async (e)=>{
 
     const cartelaCount = records.filter(r=>r.cartela).length;
     excelImportStatus.className = 'import-status ok';
-    excelImportStatus.textContent = `✅ Actualizat: ${records.length} clienți, ${weeks.length} săptămâni, ${cartelaCount} cu cartelă${sb ? ' — salvat în Supabase' : ' (doar local, fără conexiune)'}`;
+    let statusMsg = `✅ Actualizat: ${records.length} clienți, ${weeks.length} săptămâni, ${cartelaCount} cu cartelă${sb ? ' — salvat în Supabase' : ' (doar local, fără conexiune)'}`;
+    if(cartelaCount === 0){
+      statusMsg += `\n🔍 Diagnostic: coloana CARTELA ${cartelaDebug.columnFound ? 'a fost găsită (titlu citit: ' + cartelaDebug.headerTextRaw + ')' : 'NU a fost găsită în antet'}.`;
+      if(cartelaDebug.columnFound){
+        statusMsg += ` Valori citite din ea: ${cartelaDebug.sampleRawValues.length ? cartelaDebug.sampleRawValues.map(v=>JSON.stringify(v)).join(', ') : '(nicio valoare completată pe primele 400 de rânduri)'}`;
+      }
+    }
+    excelImportStatus.textContent = statusMsg;
     render();
   }catch(err){
     console.error(err);
