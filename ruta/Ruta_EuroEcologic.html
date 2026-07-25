@@ -180,14 +180,16 @@
 
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
   .client{font-weight:700; font-size:1.02rem; line-height:1.25; transition: color 0.6s ease;}
-  .client.cartela-name{animation: cartelaNamePulse 2s ease-in-out infinite;}
+  .client.cartela-name{animation: cartelaNamePulse 3s ease-in-out infinite;}
   @keyframes cartelaNamePulse{
     0%, 100% { color:#ffffff; }
-    50% { color:#e63333; }
+    33% { color:#ff9d4d; }
+    66% { color:#e63333; }
   }
+  .card.visit-done .client.cartela-name{animation:none;}
   .cartela-badge{
     display:inline-block; font-size:0.8rem; vertical-align:middle;
-    padding:1px 6px; border-radius:8px; margin-left:6px;
+    padding:1px 6px; border-radius:8px; margin-left:6px; cursor:pointer;
     background:rgba(78,167,46,0.22); border:1px solid rgba(78,167,46,0.55);
   }
   .badges{display:flex; gap:6px; flex-shrink:0;}
@@ -541,7 +543,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v10)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v12)</div>
   </div>
 </div>
 
@@ -1430,7 +1432,7 @@ function hideWeekTooltip(){
 }
 
 document.addEventListener('click', (e)=>{
-  const box = e.target.closest('.week-box');
+  const box = e.target.closest('.week-box, .cartela-badge');
   if(box){
     if(weekTooltipOpenBox === box){
       hideWeekTooltip();
@@ -2568,7 +2570,7 @@ function cardHtml(r, orderNum, historyInfo){
 
   const top = `
     <div class="card-top">
-      <div class="client${r.cartela ? ' cartela-name' : ''}">${escapeHtml(r.client)}${r.cartela ? ' <span class="cartela-badge" title="Are cartelă de semnat">📇</span>' : ''}</div>
+      <div class="client${r.cartela ? ' cartela-name' : ''}">${escapeHtml(r.client)}${r.cartela ? ' <span class="cartela-badge" data-detail="NECESITĂ CARTELĂ">📇</span>' : ''}</div>
       <a class="nav-top-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
     </div>`;
   return `
