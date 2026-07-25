@@ -535,7 +535,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 · date client: SAPT 29</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v2) · date client: SAPT 29</div>
   </div>
 </div>
 
@@ -738,16 +738,31 @@ function isCartelaCell(ws, rowIdx, colIdx){
   const cell = ws[ref];
   if(!cell || !cell.s) return false;
   const style = cell.s;
-  const bold = !!(style.font && style.font.bold);
+
+  // Bold can show up in different places depending on the parsing library/version
+  const bold = !!(
+    style.bold ||
+    (style.font && style.font.bold) ||
+    (style.font && style.font.bld)
+  );
   if(!bold) return false;
-  const fg = style.fgColor || (style.fill && style.fill.fgColor);
-  if(!fg) return false;
-  if(fg.theme === 9) return true; // accent6 in the standard Office theme — the green used for "Cartelă"
-  if(fg.rgb){
-    const rgb = fg.rgb.replace('#','').toUpperCase();
-    if(rgb.length >= 6){
-      const rr = parseInt(rgb.slice(-6,-4),16), gg = parseInt(rgb.slice(-4,-2),16), bb = parseInt(rgb.slice(-2),16);
-      if(gg > rr + 20 && gg > bb + 40) return true; // fallback: clearly green-dominant fill
+
+  // Same for the fill color — try every plausible path
+  const fgCandidates = [
+    style.fgColor,
+    style.patternFill && style.patternFill.fgColor,
+    style.fill && style.fill.fgColor,
+    style.bgColor,
+  ].filter(Boolean);
+
+  for(const fg of fgCandidates){
+    if(fg.theme === 9) return true; // accent6 in the standard Office theme — the green used for "Cartelă"
+    if(fg.rgb){
+      const rgb = String(fg.rgb).replace('#','').toUpperCase();
+      if(rgb.length >= 6){
+        const rr = parseInt(rgb.slice(-6,-4),16), gg = parseInt(rgb.slice(-4,-2),16), bb = parseInt(rgb.slice(-2),16);
+        if(gg > rr + 20 && gg > bb + 40) return true; // clearly green-dominant fill
+      }
     }
   }
   return false;
@@ -1763,8 +1778,9 @@ excelFileInput.addEventListener('change', async (e)=>{
     routeMode = 'depot';
     historyWeekNum = null;
 
+    const cartelaCount = records.filter(r=>r.cartela).length;
     excelImportStatus.className = 'import-status ok';
-    excelImportStatus.textContent = `✅ Actualizat: ${records.length} clienți, ${weeks.length} săptămâni${sb ? ' — salvat în Supabase' : ' (doar local, fără conexiune)'}`;
+    excelImportStatus.textContent = `✅ Actualizat: ${records.length} clienți, ${weeks.length} săptămâni, ${cartelaCount} cu cartelă${sb ? ' — salvat în Supabase' : ' (doar local, fără conexiune)'}`;
     render();
   }catch(err){
     console.error(err);
