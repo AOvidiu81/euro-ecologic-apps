@@ -535,7 +535,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v2)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v4)</div>
   </div>
 </div>
 
@@ -790,6 +790,7 @@ function parseWorkbookSheet(ws){
   const colTelefon = findCol(headerRow, v=>v==='TELEFON');
   const colLat = findCol(headerRow, v=>v.includes('LATITUDINE'));
   const colLon = findCol(headerRow, v=>v.includes('LONGITUDINE'));
+  const colCartela = findCol(headerRow, v=>v==='CARTELA' || v==='CARTELĂ');
 
   if(colStatus<0 || colZiua<0 || colMasina<0 || colClient<0){
     throw new Error('Structura foii nu conține coloanele de bază așteptate (STATUS/ZIUA/MASINA/CLIENT).');
@@ -827,7 +828,10 @@ function parseWorkbookSheet(ws){
     const lat = colLat>=0 ? cleanCoordJs(row[colLat]) : null;
     const lon = colLon>=0 ? cleanCoordJs(row[colLon]) : null;
     const echipamente = prodCols.map(ci=>row[ci]).filter(v=>v!=null && String(v).trim()!=='').map(v=>String(v).trim());
-    const cartela = isCartelaCell(ws, r, colClient);
+    const cartelaFromColumn = colCartela>=0 && row[colCartela]
+      ? ['DA','X','1','YES','TRUE','ADEVARAT'].includes(String(row[colCartela]).trim().toUpperCase())
+      : false;
+    const cartela = cartelaFromColumn || isCartelaCell(ws, r, colClient);
     const weekData = {};
     weekCols.forEach(w=>{
       const v = row[w.idx];
@@ -2355,7 +2359,7 @@ function weekHistoryRowHtml(r){
   const curWeek = getCurrentWeekNum();
   if(curWeek === null) return '';
   const boxes = [];
-  for(let i=1; i<=6; i++){
+  for(let i=1; i<=7; i++){
     const wn = curWeek - i;
     if(wn < 1) break;
     const raw = r.weekData ? r.weekData[String(wn)] : undefined;
