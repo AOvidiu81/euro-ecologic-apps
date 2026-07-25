@@ -535,7 +535,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v4)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v5)</div>
   </div>
 </div>
 
@@ -790,7 +790,10 @@ function parseWorkbookSheet(ws){
   const colTelefon = findCol(headerRow, v=>v==='TELEFON');
   const colLat = findCol(headerRow, v=>v.includes('LATITUDINE'));
   const colLon = findCol(headerRow, v=>v.includes('LONGITUDINE'));
-  const colCartela = findCol(headerRow, v=>v==='CARTELA' || v==='CARTELĂ');
+  const colCartela = findCol(headerRow, v=>{
+    const stripped = v.replace(/\s+/g,'');
+    return stripped === 'CARTELA' || stripped === 'CARTELĂ';
+  });
 
   if(colStatus<0 || colZiua<0 || colMasina<0 || colClient<0){
     throw new Error('Structura foii nu conține coloanele de bază așteptate (STATUS/ZIUA/MASINA/CLIENT).');
