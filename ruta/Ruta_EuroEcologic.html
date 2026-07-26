@@ -179,6 +179,17 @@
   }
 
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
+  .card-name-toggle{cursor:pointer; user-select:none;}
+  .collapse-arrow{color:var(--text-dim); font-size:0.75rem; flex-shrink:0; margin-top:2px;}
+  .card-collapsible-body{
+    max-height:800px; opacity:1; overflow:hidden;
+    transition: max-height 1s ease, opacity 0.7s ease, margin-top 1s ease;
+  }
+  .card.collapsed .card-collapsible-body{
+    max-height:0; opacity:0; margin-top:0; pointer-events:none;
+  }
+  .collapsed-leave-row{margin-top:6px;}
+  .collapsed-leave-row .visit-btn.leave{width:100%;}
   .client{font-weight:700; font-size:1.02rem; line-height:1.25; transition: color 0.6s ease;}
   .client.cartela-name{animation: cartelaNamePulse 3s ease-in-out infinite;}
   @keyframes cartelaNamePulse{
@@ -543,7 +554,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v12)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v13)</div>
   </div>
 </div>
 
@@ -1459,13 +1470,24 @@ window.addEventListener('scroll', ()=>{
 }, {passive:true, capture:true});
 
 listEl.addEventListener('click', (e)=>{
+  const nameToggle = e.target.closest('.card-name-toggle');
   const arriveBtn = e.target.closest('.visit-btn.arrive');
   const leaveBtn = e.target.closest('.visit-btn.leave');
   const obsBtn = e.target.closest('.visit-btn.obs');
   const obsChoice = e.target.closest('.obs-choice');
   const obsCancel = e.target.closest('.obs-cancel');
   const resetBtn = e.target.closest('.visit-reset');
-  if(arriveBtn){
+  if(nameToggle){
+    const cardEl = nameToggle.closest('.card[data-client-key]');
+    if(cardEl){
+      const key = cardEl.getAttribute('data-client-key');
+      const isOpenNow = !cardEl.classList.contains('collapsed');
+      cardOverrides[key] = isOpenNow ? 'closed' : 'open';
+      cardEl.classList.toggle('collapsed', isOpenNow);
+      const arrow = cardEl.querySelector('.collapse-arrow');
+      if(arrow) arrow.textContent = isOpenNow ? '▼' : '▲';
+    }
+  } else if(arriveBtn){
     const key = arriveBtn.dataset.key;
     const r = dataById[key];
     visitLog[key] = visitLog[key] || {};
@@ -1488,6 +1510,7 @@ listEl.addEventListener('click', (e)=>{
     if(visitLog[key]){
       visitLog[key].leave = new Date();
       syncVisit(key, r, visitLog[key]);
+      delete cardOverrides[key];
       finalizeCardVisually(key, 700);
     }
   } else if(obsBtn){
@@ -1509,6 +1532,7 @@ listEl.addEventListener('click', (e)=>{
     }
     delete visitLog[key]._obsOpen;
     syncVisit(key, r, visitLog[key]);
+    delete cardOverrides[key];
     finalizeCardVisually(key, 700);
   } else if(obsCancel){
     const key = obsCancel.dataset.key;
@@ -2446,9 +2470,35 @@ function updateGeoProximity(pos){
       if(d <= GEOFENCE_RADIUS_KM) near.add(String(r._id));
     }
   });
-  const changed = near.size !== nearClientKeys.size || [...near].some(k=>!nearClientKeys.has(k));
+  const entered = [...near].filter(k => !nearClientKeys.has(k));
+  const exited = [...nearClientKeys].filter(k => !near.has(k));
+  const changed = entered.length > 0 || exited.length > 0;
+  // A geofence transition is a natural reset point for any manual open/close override
+  entered.concat(exited).forEach(k => delete cardOverrides[k]);
   nearClientKeys = near;
-  if(changed || near.size > 0){
+
+  if(changed){
+    // Animate the collapse/expand directly on the existing DOM nodes first — a full
+    // re-render would just snap straight to the final state with no visible transition.
+    const cardEls = [...document.querySelectorAll('.card[data-client-key]')];
+    entered.forEach(k=>{
+      const el = cardEls.find(c => c.getAttribute('data-client-key') === k);
+      if(el && el.classList.contains('collapsed')){
+        el.classList.remove('collapsed');
+        const arrow = el.querySelector('.collapse-arrow');
+        if(arrow) arrow.textContent = '▲';
+      }
+    });
+    exited.forEach(k=>{
+      const el = cardEls.find(c => c.getAttribute('data-client-key') === k);
+      if(el && !el.classList.contains('collapsed')){
+        el.classList.add('collapsed');
+        const arrow = el.querySelector('.collapse-arrow');
+        if(arrow) arrow.textContent = '▼';
+      }
+    });
+    setTimeout(()=> animateReorder(render), 750);
+  } else if(near.size > 0){
     animateReorder(render); // re-sorts near clients to the top, animated; applyGeoHighlight() runs as part of render()
   } else {
     applyGeoHighlight();
@@ -2568,24 +2618,32 @@ function cardHtml(r, orderNum, historyInfo){
     else if(v.arrive){ visitClass = 'visit-progress'; }
   }
 
+  const key = String(r._id);
+  const open = isCardOpen(r);
+  const inProgress = isVisitInProgress(r);
+
   const top = `
-    <div class="card-top">
+    <div class="card-top card-name-toggle">
       <div class="client${r.cartela ? ' cartela-name' : ''}">${escapeHtml(r.client)}${r.cartela ? ' <span class="cartela-badge" data-detail="NECESITĂ CARTELĂ">📇</span>' : ''}</div>
-      <a class="nav-top-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
+      <span class="collapse-arrow">${open ? '▲' : '▼'}</span>
     </div>`;
   return `
-  <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''}" data-client-key="${escapeHtml(String(r._id))}">
+  <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''} ${open?'':'collapsed'}" data-client-key="${escapeHtml(key)}">
     ${orderNum ? `<div class="card-top-with-order"><div class="order-badge">${orderNum}</div>${top}</div>` : top}
-    <div class="loc"><b>${escapeHtml(r.localitate)}</b>${r.jud ? ' · '+r.jud:''}${r.locatie ? ' — '+escapeHtml(r.locatie):''}</div>
-    <div class="meta-row">${qtyLabel(r)}</div>
-    ${visitRowHtml(r)}
-    <div class="bottom-tag-row">
-      ${historyInfo && historyInfo.valid ? `<span class="time-badge">🕐 ${historyInfo.hh}:${historyInfo.mm} · ${historyInfo.duration} min</span>` : ''}
-      ${historyInfo && !historyInfo.valid && historyInfo.code ? `<span class="code-badge">${escapeHtml(historyInfo.code)}</span>` : ''}
-      ${r.ziua ? `<span class="badge day">${r.ziua}</span>`:''}
-      ${r.masina ? `<span class="badge masina ${masinaClass}">${r.masina}</span>`:''}
-      <a class="call-btn ${hasTel?'':'disabled'}" href="${hasTel? telUrl(r.telefon):'#'}">📞 Sună</a>
+    <div class="card-collapsible-body">
+      <a class="nav-top-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
+      <div class="loc"><b>${escapeHtml(r.localitate)}</b>${r.jud ? ' · '+r.jud:''}${r.locatie ? ' — '+escapeHtml(r.locatie):''}</div>
+      <div class="meta-row">${qtyLabel(r)}</div>
+      ${visitRowHtml(r)}
+      <div class="bottom-tag-row">
+        ${historyInfo && historyInfo.valid ? `<span class="time-badge">🕐 ${historyInfo.hh}:${historyInfo.mm} · ${historyInfo.duration} min</span>` : ''}
+        ${historyInfo && !historyInfo.valid && historyInfo.code ? `<span class="code-badge">${escapeHtml(historyInfo.code)}</span>` : ''}
+        ${r.ziua ? `<span class="badge day">${r.ziua}</span>`:''}
+        ${r.masina ? `<span class="badge masina ${masinaClass}">${r.masina}</span>`:''}
+        <a class="call-btn ${hasTel?'':'disabled'}" href="${hasTel? telUrl(r.telefon):'#'}">📞 Sună</a>
+      </div>
     </div>
+    ${(!open && inProgress) ? `<div class="visit-row collapsed-leave-row"><div class="visit-btn leave" data-key="${escapeHtml(key)}">🚪 Am plecat</div></div>` : ''}
     ${weekHistoryRowHtml(r)}
   </div>`;
 }
@@ -2607,6 +2665,20 @@ function finishBtnHtml(rows){
 function isVisitDone(r){
   const v = visitLog[visitKey(r)];
   return !!(v && (v.leave || v.obs));
+}
+
+function isVisitInProgress(r){
+  const v = visitLog[visitKey(r)];
+  return !!(v && v.arrive && !v.leave && !v.obs);
+}
+
+let cardOverrides = {}; // clientKey -> 'open' | 'closed', cleared automatically on the next geofence transition for that key
+
+function isCardOpen(r){
+  const key = String(r._id);
+  if(cardOverrides[key]) return cardOverrides[key] === 'open';
+  if(isVisitDone(r)) return false;
+  return nearClientKeys.has(key);
 }
 function partitionDone(arr){
   const notDone = arr.filter(r=>!isVisitDone(r));
