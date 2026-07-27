@@ -179,7 +179,7 @@
   }
 
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;}
-  .card-name-toggle{cursor:pointer; user-select:none;}
+  .card-name-toggle{cursor:pointer; user-select:none; flex:1;}
   .collapse-arrow{color:var(--text-dim); font-size:0.75rem; flex-shrink:0; margin-top:2px;}
   .card-collapsible-body{
     max-height:800px; opacity:1; overflow:hidden;
@@ -219,12 +219,14 @@
   .meta-row{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:0.78rem; color:var(--text-dim); margin-bottom:10px;}
   .meta-row .qty b{color:var(--text);}
 
-  .nav-top-btn{
-    flex:none; text-align:center; padding:8px 12px; border-radius:9px; font-size:0.8rem;
-    font-weight:700; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:5px;
-    background:var(--accent); color:#1a0f04; border:1px solid var(--accent); white-space:nowrap;
+  .nav-icon-btn{
+    flex:none; align-self:flex-start; box-sizing:border-box;
+    width:34px; height:34px; min-width:34px; min-height:34px; max-width:34px; max-height:34px;
+    display:flex; align-items:center; justify-content:center; line-height:1;
+    border-radius:8px; font-size:1rem; text-decoration:none;
+    background:var(--accent); color:#1a0f04; border:1px solid var(--accent);
   }
-  .nav-top-btn.disabled{opacity:0.35; pointer-events:none;}
+  .nav-icon-btn.disabled{opacity:0.35; pointer-events:none;}
 
   .bottom-tag-row{
     display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px;
@@ -554,7 +556,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 25 Iulie 2026 (v13)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 26 Iulie 2026 (v19)</div>
   </div>
 </div>
 
@@ -1470,7 +1472,7 @@ window.addEventListener('scroll', ()=>{
 }, {passive:true, capture:true});
 
 listEl.addEventListener('click', (e)=>{
-  const nameToggle = e.target.closest('.card-name-toggle');
+  const nameToggle = e.target.closest('.cartela-badge') ? null : e.target.closest('.card-name-toggle');
   const arriveBtn = e.target.closest('.visit-btn.arrive');
   const leaveBtn = e.target.closest('.visit-btn.leave');
   const obsBtn = e.target.closest('.visit-btn.obs');
@@ -1482,10 +1484,27 @@ listEl.addEventListener('click', (e)=>{
     if(cardEl){
       const key = cardEl.getAttribute('data-client-key');
       const isOpenNow = !cardEl.classList.contains('collapsed');
-      cardOverrides[key] = isOpenNow ? 'closed' : 'open';
+      const willBeOpen = !isOpenNow;
+      cardOverrides[key] = willBeOpen ? 'open' : 'closed';
       cardEl.classList.toggle('collapsed', isOpenNow);
       const arrow = cardEl.querySelector('.collapse-arrow');
-      if(arrow) arrow.textContent = isOpenNow ? '▼' : '▲';
+      if(arrow) arrow.textContent = willBeOpen ? '▲' : '▼';
+
+      // Keep the safety Am-plecat row in sync instantly (no waiting for a re-render):
+      // it should exist only while the card is collapsed AND the visit is in progress.
+      const leaveRow = cardEl.querySelector('.collapsed-leave-row');
+      if(willBeOpen){
+        if(leaveRow) leaveRow.remove();
+      } else {
+        const r = dataById[key];
+        if(r && isVisitInProgress(r) && !leaveRow){
+          const div = document.createElement('div');
+          div.className = 'visit-row collapsed-leave-row';
+          div.innerHTML = `<div class="visit-btn leave" data-key="${escapeHtml(key)}">🚪 Am plecat</div>`;
+          const body = cardEl.querySelector('.card-collapsible-body');
+          if(body) body.insertAdjacentElement('afterend', div);
+        }
+      }
     }
   } else if(arriveBtn){
     const key = arriveBtn.dataset.key;
@@ -2623,15 +2642,14 @@ function cardHtml(r, orderNum, historyInfo){
   const inProgress = isVisitInProgress(r);
 
   const top = `
-    <div class="card-top card-name-toggle">
-      <div class="client${r.cartela ? ' cartela-name' : ''}">${escapeHtml(r.client)}${r.cartela ? ' <span class="cartela-badge" data-detail="NECESITĂ CARTELĂ">📇</span>' : ''}</div>
-      <span class="collapse-arrow">${open ? '▲' : '▼'}</span>
+    <div class="card-top">
+      <div class="client card-name-toggle${r.cartela ? ' cartela-name' : ''}">${escapeHtml(r.client)}${r.cartela ? ' <span class="cartela-badge" data-detail="NECESITĂ CARTELĂ">📇</span>' : ''} <span class="collapse-arrow">${open ? '▲' : '▼'}</span></div>
+      <a class="nav-icon-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener" aria-label="Navigare"><svg viewBox="0 0 24 24" width="18" height="18" fill="#1a0f04"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></a>
     </div>`;
   return `
   <div class="card ${statusClass} ${visitClass} ${noVisit?'no-visit':''} ${open?'':'collapsed'}" data-client-key="${escapeHtml(key)}">
     ${orderNum ? `<div class="card-top-with-order"><div class="order-badge">${orderNum}</div>${top}</div>` : top}
     <div class="card-collapsible-body">
-      <a class="nav-top-btn ${hasCoords?'':'disabled'}" href="${hasCoords? mapsUrl(r.lat,r.lon):'#'}" target="_blank" rel="noopener">📍 Navigare</a>
       <div class="loc"><b>${escapeHtml(r.localitate)}</b>${r.jud ? ' · '+r.jud:''}${r.locatie ? ' — '+escapeHtml(r.locatie):''}</div>
       <div class="meta-row">${qtyLabel(r)}</div>
       ${visitRowHtml(r)}
