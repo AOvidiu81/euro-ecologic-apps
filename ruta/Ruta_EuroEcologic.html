@@ -249,6 +249,8 @@
   .week-box.red{background:rgba(255,60,60,0.22); color:#ff7a7a; border:1px solid rgba(255,60,60,0.5);}
   .week-box.gray{background:rgba(147,163,176,0.12); color:var(--text-dim); border:1px solid var(--border);}
   .week-box.yellow{background:rgba(255,214,51,0.22); color:#ffd633; border:1px solid rgba(255,214,51,0.5);}
+  .week-box.dur-red{color:#ff5c5c;}
+  .week-box.dur-orange{color:#ff9d4d;}
   .week-box{cursor:pointer;}
   #weekTooltip{
     position:fixed; z-index:300; background:#1a1f2b; color:#fff;
@@ -556,7 +558,7 @@
     </div>
 
     <div class="manage-toggle" id="btnOpenHistory" style="margin-top:10px;">📜 Istoric rute (ultimele 30 zile)</div>
-    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 26 Iulie 2026 (v19)</div>
+    <div style="text-align:center; margin-top:14px; font-size:0.68rem; color:var(--text-dim); opacity:0.6;">Build: 27 Iulie 2026 (v20)</div>
   </div>
 </div>
 
@@ -2411,6 +2413,20 @@ function classifyWeekCell(raw){
   return 'gray'; // orice cod nerecunoscut, ca fallback sigur
 }
 
+function weekTextColorClass(raw){
+  // Only applies to normal visits with a numeric stationary-time duration
+  // (e.g. "0936-02"). Chenar/fundal stay green regardless — only the W-label
+  // text color changes, as a quick visual check of stationary time compliance.
+  if(raw === undefined || raw === null) return '';
+  const v = String(raw).trim();
+  const m = /^(\d{3,4})-([0-9]+)$/.exec(v);
+  if(!m) return '';
+  const dur = parseInt(m[2], 10);
+  if(dur <= 1) return 'dur-red';      // 00-01 min
+  if(dur <= 3) return 'dur-orange';   // 02-03 min
+  return '';                          // 04+ min -> default green text
+}
+
 function getCurrentWeekNum(){
   const today = new Date();
   today.setHours(0,0,0,0);
@@ -2435,8 +2451,9 @@ function weekHistoryRowHtml(r){
     if(wn < 1) break;
     const raw = r.weekData ? r.weekData[String(wn)] : undefined;
     const colorClass = classifyWeekCell(raw);
+    const textClass = weekTextColorClass(raw);
     const detail = raw ? raw : 'Fără vizită';
-    boxes.push(`<span class="week-box ${colorClass}" data-detail="${escapeHtml(detail)}">W${wn}</span>`);
+    boxes.push(`<span class="week-box ${colorClass} ${textClass}" data-detail="${escapeHtml(detail)}">W${wn}</span>`);
   }
   if(!boxes.length) return '';
   return `<div class="week-history-row">${boxes.join('')}</div>`;
