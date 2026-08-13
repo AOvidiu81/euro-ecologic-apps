@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Evidență bugetară</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #12161C;
+    font-family: 'Space Grotesk', sans-serif;
+    color: #E8E6DF;
+    padding: 32px 16px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  .header {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-bottom: 28px; border-bottom: 1px solid #2A3038; padding-bottom: 20px;
+  }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; color: #7C8896; text-transform: uppercase; margin-bottom: 6px; }
+  .month { font-size: 30px; font-weight: 700; }
+  .days-num { font-family: 'JetBrains Mono', monospace; font-size: 34px; font-weight: 700; color: #5FB37D; line-height: 1; text-align: right; }
+  .days-label { font-size: 11px; color: #7C8896; margin-top: 4px; text-align: right; }
+  .strip { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 28px; }
+  .day-cell {
+    flex: 0 0 auto; width: 22px; height: 40px; border-radius: 3px;
+    display: flex; align-items: flex-end; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; padding-bottom: 4px;
+    background: rgba(95,179,125,0.14); color: #8FCBA3; font-weight: 500; border: 1px solid transparent;
+  }
+  .day-cell.past { background: #1A1F26; color: #4A5461; }
+  .day-cell.today { background: #5FB37D; color: #0E1310; font-weight: 700; border: 1px solid #5FB37D; }
+  .card { background: #1A1F26; border: 1px solid #2A3038; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+  .label { font-size: 12px; letter-spacing: .08em; color: #7C8896; text-transform: uppercase; margin-bottom: 12px; }
+  .input-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  input[type="text"] {
+    flex: 1 1 140px; min-width: 0; width: 100%; background: #12161C; border: 1px solid #333A44; border-radius: 6px;
+    padding: 12px 14px; color: #E8E6DF; font-family: 'JetBrains Mono', monospace; font-size: 16px; outline: none;
+  }
+  input[type="text"]:focus { border-color: #5FB37D; }
+  button.save {
+    display: flex; align-items: center; justify-content: center; gap: 6px; background: #5FB37D; color: #0E1310;
+    border: none; border-radius: 6px; padding: 12px 18px; font-weight: 600; font-size: 14px; cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif; flex: 1 1 100%;
+  }
+  @media (min-width: 420px) {
+    button.save { flex: 0 0 auto; }
+  }
+  button.save:disabled { opacity: .6; cursor: default; }
+  .error { display: flex; align-items: center; gap: 6px; color: #D97757; font-size: 13px; margin-top: 10px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 28px; }
+  .stat-card { background: #1A1F26; border: 1px solid #2A3038; border-radius: 8px; padding: 18px; }
+  .stat-card.accent { border: 1px solid #5FB37D44; }
+  .stat-label { font-size: 11px; letter-spacing: .08em; color: #7C8896; text-transform: uppercase; margin-bottom: 8px; }
+  .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600; }
+  .stat-value.accent { color: #5FB37D; font-weight: 700; }
+  .history { border: 1px solid #2A3038; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+  .history-row {
+    display: flex; justify-content: space-between; padding: 10px 14px; font-size: 13px;
+    font-family: 'JetBrains Mono', monospace; border-bottom: 1px solid #2A3038;
+  }
+  .history-row:last-child { border-bottom: none; }
+  .history-row:nth-child(odd) { background: #161A20; }
+  .history-row:nth-child(even) { background: #13171D; }
+  .history-row .muted { color: #7C8896; }
+  .history-row .avg { color: #5FB37D; }
+  .reset-btn {
+    display: flex; align-items: center; gap: 6px; background: transparent; border: 1px solid #333A44;
+    color: #7C8896; border-radius: 6px; padding: 8px 14px; font-size: 12px; cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+  .loading { color: #7C8896; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+const LUNI = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
+
+const today = new Date();
+const year = today.getFullYear();
+const month = today.getMonth();
+const currentDay = today.getDate();
+const daysInMonth = new Date(year, month + 1, 0).getDate();
+const daysRemaining = daysInMonth - currentDay + 1;
+const monthKey = `buget:${year}-${String(month + 1).padStart(2, '0')}`;
+const todayISO = today.toISOString().slice(0, 10);
+
+function loadEntries() {
+  try {
+    const raw = localStorage.getItem(monthKey);
+    if (!raw) return [];
+    return JSON.parse(raw).entries || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveEntries(entries) {
+  localStorage.setItem(monthKey, JSON.stringify({ entries }));
+}
+
+function fmt(n) {
+  return n.toLocaleString('ro-RO', { minimumFractionDigits: 2 });
+}
+
+let entries = loadEntries();
+let errorMsg = null;
+
+function render() {
+  const latest = entries.length ? entries[entries.length - 1] : null;
+  const soldCurent = latest ? latest.sold : null;
+  const media = soldCurent !== null ? soldCurent / daysRemaining : null;
+
+  let stripHTML = '';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cls = d === currentDay ? 'day-cell today' : d < currentDay ? 'day-cell past' : 'day-cell';
+    const idAttr = d === currentDay ? ' id="todayCell"' : '';
+    stripHTML += `<div class="${cls}"${idAttr} title="${d === currentDay ? 'Astăzi' : d < currentDay ? 'Zi trecută' : 'Zi rămasă'}">${d}</div>`;
+  }
+
+  let historyHTML = '';
+  if (entries.length > 0) {
+    const rows = [...entries].reverse().map(e =>
+      `<div class="history-row">
+        <span class="muted">ziua ${e.zi} · ${e.ramase} rămase</span>
+        <span>${fmt(e.sold)}</span>
+        <span class="avg">${fmt(e.medie)}/zi</span>
+      </div>`
+    ).join('');
+    historyHTML = `
+      <div class="label">Istoric actualizări — ${LUNI[month]}</div>
+      <div class="history">${rows}</div>
+    `;
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <div>
+        <div class="eyebrow">Evidență bugetară</div>
+        <div class="month">${LUNI[month]} ${year}</div>
+      </div>
+      <div>
+        <div class="days-num">${daysRemaining}</div>
+        <div class="days-label">zile rămase din ${daysInMonth}</div>
+      </div>
+    </div>
+
+    <div class="strip">${stripHTML}</div>
+
+    <div class="card">
+      <div class="label">Actualizează soldul curent</div>
+      <div class="input-row">
+        <input type="text" inputmode="decimal" id="balanceInput" placeholder="${soldCurent !== null ? soldCurent : '0.00'}" />
+        <button class="save" id="saveBtn">Salvează</button>
+      </div>
+      ${errorMsg ? `<div class="error">⚠ ${errorMsg}</div>` : ''}
+    </div>
+
+    <div class="grid2">
+      <div class="stat-card">
+        <div class="stat-label">Sold curent</div>
+        <div class="stat-value">${soldCurent !== null ? fmt(soldCurent) : '—'}</div>
+      </div>
+      <div class="stat-card accent">
+        <div class="stat-label">↓ Medie / zi rămasă</div>
+        <div class="stat-value accent">${media !== null ? fmt(media) : '—'}</div>
+      </div>
+    </div>
+
+    ${historyHTML}
+
+    <button class="reset-btn" id="resetBtn">↺ Resetează luna curentă</button>
+  `;
+
+  document.getElementById('saveBtn').addEventListener('click', salveazaSold);
+  document.getElementById('balanceInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') salveazaSold();
+  });
+  document.getElementById('resetBtn').addEventListener('click', reseteazaLuna);
+
+  const todayCell = document.getElementById('todayCell');
+  if (todayCell) {
+    todayCell.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }
+}
+
+function salveazaSold() {
+  const input = document.getElementById('balanceInput');
+  const val = parseFloat(input.value.replace(',', '.'));
+  if (isNaN(val)) {
+    errorMsg = 'Introdu o sumă validă.';
+    render();
+    return;
+  }
+  errorMsg = null;
+  const faraAzi = entries.filter(e => e.date !== todayISO);
+  entries = [...faraAzi, { date: todayISO, sold: val, zi: currentDay, ramase: daysRemaining, medie: val / daysRemaining }]
+    .sort((a, b) => a.date.localeCompare(b.date));
+  saveEntries(entries);
+  render();
+}
+
+function reseteazaLuna() {
+  localStorage.removeItem(monthKey);
+  entries = [];
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
